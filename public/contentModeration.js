@@ -1,31 +1,21 @@
-// contentModeration.js
+// public/contentModeration.js
 
 export let model = null;
 
 /**
- * Loads the NSFWJS model over HTTPS to avoid mixed-content errors.
+ * Load the NSFWJS model from jsDelivr over HTTPS.
+ * No URL argument needed—the UMD bundle knows how to find its own "models/" dir.
  */
 export async function loadModel() {
   if (!window.nsfwjs) {
-    throw new Error('NSFWJS global not found; did you include the <script> tags?');
+    throw new Error('NSFWJS global not found; did you include the <script src="...nsfwjs.min.js"> tag in index.html?');
   }
-
-  // Secure HTTPS URL for the quantized Mobilenet model
-  const MODEL_URL = 
-    'https://d1zv2aa70wpiur.cloudfront.net/tfjs_quant_nsfw_mobilenet/model.json';
-
-  // Pass the HTTPS URL to the loader
-  model = await window.nsfwjs.load(MODEL_URL);
+  model = await window.nsfwjs.load();  // ← fetches from https://cdn.jsdelivr.net/npm/nsfwjs@2.4.0/dist/models/…
   return model;
 }
 
-/**
- * Classifies a canvas frame.
- */
 export function classifyFrame(canvas) {
-  if (!model) {
-    throw new Error('Model not loaded. Call loadModel() first.');
-  }
+  if (!model) throw new Error('Model not loaded. Call loadModel() first.');
   return model.classify(canvas);
 }
 
@@ -85,6 +75,7 @@ uploadBtn.addEventListener('click', async () => {
     await new Promise(res => vid.onloadeddata = res);
     vid.currentTime = Math.min(1, vid.duration / 2);
     await new Promise(res => vid.onseeked = res);
+
     const canvas = document.createElement('canvas');
     canvas.width = vid.videoWidth;
     canvas.height = vid.videoHeight;
@@ -111,9 +102,7 @@ uploadBtn.addEventListener('click', async () => {
       file,
       code,
       pct => (progressEl.value = pct),
-      () => window.dispatchEvent(
-        new CustomEvent('uploadComplete', { detail: { deleteAfter: code } })
-      ),
+      () => window.dispatchEvent(new CustomEvent('uploadComplete',{detail:{deleteAfter:code}})),
       err => {
         console.error(err);
         statusTxt.textContent = 'Upload failed.';
@@ -123,11 +112,8 @@ uploadBtn.addEventListener('click', async () => {
 
   if (score > 0.7) {
     statusTxt.textContent = '⚠️ NSFW detected.';
-    if (confirm('Content may be inappropriate. Proceed?')) {
-      doUpload();
-    } else {
-      statusTxt.textContent = 'Upload cancelled.';
-    }
+    if (confirm('Content may be inappropriate. Proceed?')) doUpload();
+    else statusTxt.textContent = 'Upload cancelled.';
   } else {
     statusTxt.textContent = 'Content is clean. Uploading…';
     doUpload();
@@ -154,8 +140,8 @@ window.addEventListener('uploadComplete', e => {
       timeLeftEl.textContent = '00:00';
       return;
     }
-    const m = String(Math.floor(diff / 60000)).padStart(2, '0');
-    const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+    const m = String(Math.floor(diff / 60000)).padStart(2,'0');
+    const s = String(Math.floor((diff % 60000) / 1000)).padStart(2,'0');
     timeLeftEl.textContent = `${m}:${s}`;
   }, 1000);
 });
