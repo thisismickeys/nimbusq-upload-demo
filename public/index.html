@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Nimbus-Q Upload</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- TF.js & NSFWJS globals -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.5.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/nsfwjs@2.4.0/dist/nsfwjs.min.js"></script>
+
+  <style>
+    /* Body with cloud-like gradient */
+    body {
+      font-family: 'Inter', sans-serif;
+      background:
+        radial-gradient(circle at 25% 20%, rgba(255,255,255,0.5), transparent 60%),
+        radial-gradient(circle at 75% 60%, rgba(255,255,255,0.4), transparent 60%),
+        linear-gradient(to right, #A2C9FF, #7EB8F9);
+      color: #333;
+      display: flex; align-items: center; justify-content: center;
+      height: 100vh; margin: 0; overflow: hidden;
+    }
+    .cloud {
+      position: absolute; background: rgba(255,255,255,0.3);
+      border-radius: 50%/40%; animation:float 60s linear infinite; z-index: 0;
+    }
+    .cloud:nth-child(1){width:300px;height:150px;top:10%;left:-20%;animation-duration:90s}
+    .cloud:nth-child(2){width:200px;height:100px;top:30%;left:-25%;animation-duration:120s}
+    .cloud:nth-child(3){width:250px;height:120px;top:60%;left:-30%;animation-duration:100s}
+    @keyframes float{0%{transform:translateX(0)}100%{transform:translateX(200vw)}}
+
+    /* Container */
+    .container {
+      z-index:1; text-align:center;
+      background: rgba(255,255,255,0.85);
+      padding: 2rem; border-radius: 16px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.1);
+      width: 90%; max-width: 400px; margin: 0 auto;
+    }
+    .logo { width:150px; height:150px; border-radius:12px; margin-bottom:1rem }
+    .tagline { font-size:1rem; color:#555; margin-bottom:2rem }
+
+    /* Updated Drag & Drop Zone */
+    .drop-zone {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 100px;
+      border: 2px dashed #ddd;
+      border-radius: 10px;
+      margin-bottom: 1rem;
+      position: relative;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    .drop-zone:hover {
+      background-color: rgba(255,255,255,0.7);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      opacity: 0; cursor: pointer;
+    }
+
+    /* Form Inputs & Buttons */
+    select, input[type="text"] {
+      padding:.6rem; width:100%;
+      border:1px solid #ddd; border-radius:10px;
+      font-size:1rem; margin-bottom:1rem;
+    }
+    #uploadBtn {
+      background:#4da8ff; color:#fff; border:none;
+      border-radius:8px; padding:.7rem 1.5rem;
+      font-size:1rem; font-weight:600;
+      cursor:pointer; transition:background .3s;
+      width:100%; margin-top:.5rem;
+    }
+    #uploadBtn:hover { background:#73bfff }
+    #progressBar {
+      display:none; width:100%; height:10px;
+      border-radius:6px; overflow:hidden; background:#eee;
+      margin-top:1rem;
+    }
+    #progressBar::-webkit-progress-bar { background:#eee }
+    #progressBar::-webkit-progress-value { background:#4da8ff }
+    #status { margin-top:1rem; font-weight:600; color:#333 }
+    #countdown { font-size:.9rem; color:#777; margin-top:.5rem }
+    footer { margin-top:2rem; font-size:.85rem; color:#888 }
+
+    @media (max-width:600px) {
+      input[type="text"] { font-size:.9rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="cloud"></div><div class="cloud"></div><div class="cloud"></div>
+  <div class="container">
+    <img
+      src="https://firebasestorage.googleapis.com/v0/b/nimbus-q.firebasestorage.app/o/Nimbus%20Logo.png?alt=media"
+      alt="Nimbus-Q Logo"
+      class="logo"
+    />
+    <p class="tagline">The Future of Private AI Video Uploads</p>
+
+    <!-- Drop zone as label -->
+    <label class="drop-zone">
+      Drag &amp; Drop or Choose File
+      <input type="file" id="videoUpload" accept="video/mp4,video/quicktime"/>
+    </label>
+
+    <select id="deleteTime">
+      <option value="">Select a preset time…</option>
+      <option value="2m">2 minutes (Demo)</option>
+      <option value="10m">10 minutes</option>
+      <option value="1h">1 hour</option>
+      <option value="24h">24 hours</option>
+      <option value="7d">7 days</option>
+    </select>
+
+    <input
+      type="text"
+      id="customDeleteTime"
+      placeholder="Or enter custom time (e.g. 13h47m)"
+    />
+
+    <button id="uploadBtn">Upload Video</button>
+    <progress id="progressBar" value="0" max="100"></progress>
+
+    <p id="status">Please upload an MP4 or MOV file.</p>
+    <p id="countdown">Auto-delete in: <span id="timeLeft">--:--</span></p>
+    <footer>Your file is private. Nimbus-Q will auto-delete it.</footer>
+  </div>
+
+  <!-- Optional override -->
+  <script>
+    window.NQ_CONFIG = { modelUrl: 'https://your.custom/model.js' };
+  </script>
+
+  <!-- Firebase helper -->
+  <script type="module" src="./firebase.js"></script>
+
+  <!-- Main logic -->
+  <script type="module">
+    import { firebaseUpload } from './firebase.js';
+
+    // Load local NSFW model
+    let nsfwReady = nsfwjs
+      .load('/model/')
+      .then(m => { console.log('✅ NSFW model loaded'); return m; })
+      .catch(err => { console.error('❌ NSFW load failed', err); });
+
+    const fileInput  = document.getElementById('videoUpload');
+    const statusTxt  = document.getElementById('status');
+    const uploadBtn  = document.getElementById('uploadBtn');
+    const progressEl = document.getElementById('progressBar');
+    const deleteSel  = document.getElementById('deleteTime');
+    const customIn   = document.getElementById('customDeleteTime');
+
+    async function scanNSFW(file) {
+      const vid = document.createElement('video');
+      vid.src = URL.createObjectURL(file);
+      await new Promise((res, rej) => {
+        vid.addEventListener('loadeddata', res);
+        vid.addEventListener('error', rej);
+      });
+      const seekTime = Math.min(1, (vid.duration || 1) / 2);
+      vid.currentTime = seekTime;
+      await new Promise(res => vid.addEventListener('seeked', res));
+      const canvas = document.createElement('canvas');
+      canvas.width = vid.videoWidth;
+      canvas.height = vid.videoHeight;
+      canvas.getContext('2d').drawImage(vid, 0, 0);
+      return (await nsfwReady).classify(canvas);
+    }
+
+    function showWarningModal(onConfirm) {
+      const overlay = document.createElement('div');
+      overlay.style = `
+        position:fixed;top:0;left:0;width:100%;height:100%;
+        background:rgba(0,0,0,0.5);display:flex;
+        align-items:center;justify-content:center;z-index:10;
+      `;
+      const modal = document.createElement('div');
+      modal.style = `
+        background:#fff;padding:2rem;border-radius:12px;
+        box-shadow:0 0 20px rgba(0,0,0,0.2);text-align:center;
+      `;
+      modal.innerHTML = `
+        <p style="margin-bottom:1rem;font-weight:600;">
+          ⚠️ Content may be inappropriate.
+        </p>
+        <button id="cancelBtn" style="
+          margin-right:.5rem;padding:.5rem 1rem;
+          border:1px solid #ccc;background:#f5f5f5;
+          border-radius:6px;cursor:pointer;
+        ">Cancel</button>
+        <button id="confirmBtn" style="
+          padding:.5rem 1rem;border:none;background:#4da8ff;
+          color:#fff;border-radius:6px;cursor:pointer;
+        ">Proceed</button>
+      `;
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+      overlay.querySelector('#cancelBtn').onclick = () => overlay.remove();
+      overlay.querySelector('#confirmBtn').onclick = () => {
+        overlay.remove(); onConfirm();
+      };
+    }
+
+    uploadBtn.addEventListener('click', async () => {
+      if (!fileInput.files.length) {
+        statusTxt.textContent = 'No file selected!';
+        return;
+      }
+      const file = fileInput.files[0];
+      statusTxt.textContent = 'Scanning for NSFW content…';
+      const preds = await scanNSFW(file);
+      console.log('NSFW preds:', preds);
+      const score = preds
+        .filter(p => ['Porn','Hentai','Sexy'].includes(p.className))
+        .reduce((sum,p) => sum + p.probability, 0);
+      const code = customIn.value || deleteSel.value || '2m';
+
+      const doUpload = () => {
+        statusTxt.textContent = 'Uploading…';
+        progressEl.style.display = 'block';
+        firebaseUpload(
+          file,
+          code,
+          pct => progressEl.value = pct,
+          () => window.dispatchEvent(new CustomEvent('uploadComplete',{detail:{deleteAfter:code}})),
+          err => {
+            console.error(err);
+            statusTxt.textContent = 'Upload failed.';
+          }
+        );
+      };
+
+      if (score > 0.7) {
+        statusTxt.textContent = '⚠️ NSFW detected.';
+        showWarningModal(doUpload);
+      } else {
+        statusTxt.textContent = 'Content is clean. Uploading…';
+        doUpload();
+      }
+    });
+
+    let countdownInterval;
+    window.addEventListener('uploadComplete', e => {
+      clearInterval(countdownInterval);
+      const amt = parseInt(e.detail.deleteAfter), unit = e.detail.deleteAfter.slice(-1);
+      let ms = unit==='h'?amt*3600000:unit==='d'?amt*86400000:amt*60000;
+      const end = Date.now()+ms;
+      countdownInterval = setInterval(() => {
+        const diff = end-Date.now();
+        if (diff<=0) return clearInterval(countdownInterval);
+        const m = Math.floor(diff/60000), s = Math.floor((diff%60000)/1000);
+        document.getElementById('timeLeft').textContent = `${m}m ${s}s`;
+      },1000);
+    });
+  </script>
+</body>
+</html>
