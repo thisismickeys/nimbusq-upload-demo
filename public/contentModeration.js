@@ -1,16 +1,31 @@
 // contentModeration.js
+
 export let model = null;
 
+/**
+ * Loads the NSFWJS model over HTTPS to avoid mixed-content errors.
+ */
 export async function loadModel() {
   if (!window.nsfwjs) {
-    throw new Error('NSFWJS global not found');
+    throw new Error('NSFWJS global not found; did you include the <script> tags?');
   }
-  model = await window.nsfwjs.load();
+
+  // Secure HTTPS URL for the quantized Mobilenet model
+  const MODEL_URL = 
+    'https://d1zv2aa70wpiur.cloudfront.net/tfjs_quant_nsfw_mobilenet/model.json';
+
+  // Pass the HTTPS URL to the loader
+  model = await window.nsfwjs.load(MODEL_URL);
   return model;
 }
 
+/**
+ * Classifies a canvas frame.
+ */
 export function classifyFrame(canvas) {
-  if (!model) throw new Error('Model not loaded');
+  if (!model) {
+    throw new Error('Model not loaded. Call loadModel() first.');
+  }
   return model.classify(canvas);
 }
 
@@ -86,16 +101,19 @@ uploadBtn.addEventListener('click', async () => {
 
   const score = preds
     .filter(p => ['Porn','Hentai','Sexy'].includes(p.className))
-    .reduce((sum,p) => sum + p.probability, 0);
+    .reduce((sum, p) => sum + p.probability, 0);
   const code = customIn.value || deleteSel.value || '2m';
 
   const doUpload = () => {
     statusTxt.textContent = 'Uploading…';
     progressEl.style.display = 'block';
     firebaseUpload(
-      file, code,
-      pct => progressEl.value = pct,
-      () => window.dispatchEvent(new CustomEvent('uploadComplete',{detail:{deleteAfter:code}})),
+      file,
+      code,
+      pct => (progressEl.value = pct),
+      () => window.dispatchEvent(
+        new CustomEvent('uploadComplete', { detail: { deleteAfter: code } })
+      ),
       err => {
         console.error(err);
         statusTxt.textContent = 'Upload failed.';
@@ -105,8 +123,11 @@ uploadBtn.addEventListener('click', async () => {
 
   if (score > 0.7) {
     statusTxt.textContent = '⚠️ NSFW detected.';
-    if (confirm('Content may be inappropriate. Proceed?')) doUpload();
-    else statusTxt.textContent = 'Upload cancelled.';
+    if (confirm('Content may be inappropriate. Proceed?')) {
+      doUpload();
+    } else {
+      statusTxt.textContent = 'Upload cancelled.';
+    }
   } else {
     statusTxt.textContent = 'Content is clean. Uploading…';
     doUpload();
@@ -119,7 +140,11 @@ window.addEventListener('uploadComplete', e => {
   clearInterval(countdownInterval);
   const amt = parseInt(e.detail.deleteAfter, 10);
   const unit = e.detail.deleteAfter.slice(-1);
-  let ms = unit==='h'?amt*3600000:unit==='d'?amt*86400000:amt*60000;
+  let ms = unit === 'h'
+    ? amt * 3600000
+    : unit === 'd'
+    ? amt * 86400000
+    : amt * 60000;
   const end = Date.now() + ms;
   countdownInterval = setInterval(() => {
     const diff = end - Date.now();
@@ -129,8 +154,8 @@ window.addEventListener('uploadComplete', e => {
       timeLeftEl.textContent = '00:00';
       return;
     }
-    const m = String(Math.floor(diff/60000)).padStart(2,'0');
-    const s = String(Math.floor((diff%60000)/1000)).padStart(2,'0');
+    const m = String(Math.floor(diff / 60000)).padStart(2, '0');
+    const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
     timeLeftEl.textContent = `${m}:${s}`;
   }, 1000);
 });
