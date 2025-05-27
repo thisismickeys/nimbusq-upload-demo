@@ -21,7 +21,7 @@ const fs = require('fs');
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 // load the NSFW model once, from our local folder
-const modelPromise = nsfw.load(`file://${__dirname}/model/`);
+const modelPromise = nsfw.load();
 // ✅ Init
 admin.initializeApp();
 const db = admin.firestore();
