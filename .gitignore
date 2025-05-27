@@ -1,5 +1,5 @@
 node_modules/
 dist/
-public/model/
 functions/node_modules/
-functions/model/
+firebase-debug.log
+*.log
