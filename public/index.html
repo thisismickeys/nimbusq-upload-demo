@@ -9,10 +9,6 @@
     rel="stylesheet"
   />
 
-  <!-- TF.js & NSFWJS globals -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.5.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/nsfwjs@2.4.0/dist/nsfwjs.min.js"></script>
-
   <style>
     /* Body with cloud-like gradient */
     body {
@@ -45,28 +41,19 @@
     .logo { width:150px; height:150px; border-radius:12px; margin-bottom:1rem }
     .tagline { font-size:1rem; color:#555; margin-bottom:2rem }
 
-    /* Updated Drag & Drop Zone */
+    /* Drag & Drop Zone */
     .drop-zone {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      min-height: 100px;
-      border: 2px dashed #ddd;
-      border-radius: 10px;
-      margin-bottom: 1rem;
-      position: relative;
-      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; min-height: 100px;
+      border: 2px dashed #ddd; border-radius: 10px;
+      margin-bottom: 1rem; position: relative; cursor: pointer;
       transition: background-color 0.2s;
     }
-    .drop-zone:hover {
-      background-color: rgba(255,255,255,0.7);
-    }
+    .drop-zone:hover { background-color: rgba(255,255,255,0.7); }
     .drop-zone input[type="file"] {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      opacity: 0; cursor: pointer;
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%; opacity: 0;
+      cursor: pointer;
     }
 
     /* Form Inputs & Buttons */
@@ -88,15 +75,9 @@
       border-radius:6px; overflow:hidden; background:#eee;
       margin-top:1rem;
     }
-    #progressBar::-webkit-progress-bar { background:#eee }
-    #progressBar::-webkit-progress-value { background:#4da8ff }
     #status { margin-top:1rem; font-weight:600; color:#333 }
     #countdown { font-size:.9rem; color:#777; margin-top:.5rem }
     footer { margin-top:2rem; font-size:.85rem; color:#888 }
-
-    @media (max-width:600px) {
-      input[type="text"] { font-size:.9rem; }
-    }
   </style>
 </head>
 <body>
@@ -109,7 +90,6 @@
     />
     <p class="tagline">The Future of Private AI Video Uploads</p>
 
-    <!-- Drop zone as label -->
     <label class="drop-zone">
       Drag &amp; Drop or Choose File
       <input type="file" id="videoUpload" accept="video/mp4,video/quicktime"/>
@@ -123,38 +103,25 @@
       <option value="24h">24 hours</option>
       <option value="7d">7 days</option>
     </select>
-
     <input
-      type="text"
-      id="customDeleteTime"
+      type="text" id="customDeleteTime"
       placeholder="Or enter custom time (e.g. 13h47m)"
     />
 
     <button id="uploadBtn">Upload Video</button>
     <progress id="progressBar" value="0" max="100"></progress>
 
-    <p id="status">Please upload an MP4 or MOV file.</p>
+    <p id="status">Please select a video file.</p>
     <p id="countdown">Auto-delete in: <span id="timeLeft">--:--</span></p>
     <footer>Your file is private. Nimbus-Q will auto-delete it.</footer>
   </div>
 
-  <!-- Optional override -->
-  <script>
-    window.NQ_CONFIG = { modelUrl: 'https://your.custom/model.js' };
-  </script>
-
   <!-- Firebase helper -->
   <script type="module" src="./firebase.js"></script>
-
-  <!-- Main logic -->
+  <!-- Content Moderation logic -->
   <script type="module">
+    import { loadModel, classifyFrame } from './contentModeration.js';
     import { firebaseUpload } from './firebase.js';
-
-    // Load local NSFW model
-    let nsfwReady = nsfwjs
-      .load('/model/')
-      .then(m => { console.log('✅ NSFW model loaded'); return m; })
-      .catch(err => { console.error('❌ NSFW load failed', err); });
 
     const fileInput  = document.getElementById('videoUpload');
     const statusTxt  = document.getElementById('status');
@@ -162,80 +129,79 @@
     const progressEl = document.getElementById('progressBar');
     const deleteSel  = document.getElementById('deleteTime');
     const customIn   = document.getElementById('customDeleteTime');
+    const timeLeftEl = document.getElementById('timeLeft');
+    let modelPromise;
 
-    async function scanNSFW(file) {
-      const vid = document.createElement('video');
-      vid.src = URL.createObjectURL(file);
-      await new Promise((res, rej) => {
-        vid.addEventListener('loadeddata', res);
-        vid.addEventListener('error', rej);
-      });
-      const seekTime = Math.min(1, (vid.duration || 1) / 2);
-      vid.currentTime = seekTime;
-      await new Promise(res => vid.addEventListener('seeked', res));
-      const canvas = document.createElement('canvas');
-      canvas.width = vid.videoWidth;
-      canvas.height = vid.videoHeight;
-      canvas.getContext('2d').drawImage(vid, 0, 0);
-      return (await nsfwReady).classify(canvas);
-    }
+    // 1) Update UI when a file is chosen
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) {
+        statusTxt.textContent = `Selected: ${fileInput.files[0].name}`;
+      } else {
+        statusTxt.textContent = 'Please select a video file.';
+      }
+    });
 
-    function showWarningModal(onConfirm) {
-      const overlay = document.createElement('div');
-      overlay.style = `
-        position:fixed;top:0;left:0;width:100%;height:100%;
-        background:rgba(0,0,0,0.5);display:flex;
-        align-items:center;justify-content:center;z-index:10;
-      `;
-      const modal = document.createElement('div');
-      modal.style = `
-        background:#fff;padding:2rem;border-radius:12px;
-        box-shadow:0 0 20px rgba(0,0,0,0.2);text-align:center;
-      `;
-      modal.innerHTML = `
-        <p style="margin-bottom:1rem;font-weight:600;">
-          ⚠️ Content may be inappropriate.
-        </p>
-        <button id="cancelBtn" style="
-          margin-right:.5rem;padding:.5rem 1rem;
-          border:1px solid #ccc;background:#f5f5f5;
-          border-radius:6px;cursor:pointer;
-        ">Cancel</button>
-        <button id="confirmBtn" style="
-          padding:.5rem 1rem;border:none;background:#4da8ff;
-          color:#fff;border-radius:6px;cursor:pointer;
-        ">Proceed</button>
-      `;
-      overlay.appendChild(modal);
-      document.body.appendChild(overlay);
-      overlay.querySelector('#cancelBtn').onclick = () => overlay.remove();
-      overlay.querySelector('#confirmBtn').onclick = () => {
-        overlay.remove(); onConfirm();
-      };
-    }
+    // 2) Pre-load the NSFW model
+    (async () => {
+      try {
+        statusTxt.textContent = 'Loading NSFW model…';
+        modelPromise = loadModel(); 
+        await modelPromise;
+        statusTxt.textContent = 'NSFW model ready.';
+      } catch (e) {
+        console.error('NSFW load failed', e);
+        statusTxt.textContent = 'Failed to load NSFW model.';
+      }
+    })();
 
+    // 3) Scan + upload flow
     uploadBtn.addEventListener('click', async () => {
       if (!fileInput.files.length) {
         statusTxt.textContent = 'No file selected!';
         return;
       }
       const file = fileInput.files[0];
-      statusTxt.textContent = 'Scanning for NSFW content…';
-      const preds = await scanNSFW(file);
-      console.log('NSFW preds:', preds);
+      statusTxt.textContent = 'Scanning for NSFW…';
+
+      let preds;
+      try {
+        // capture a frame
+        const vid = document.createElement('video');
+        vid.src = URL.createObjectURL(file);
+        await new Promise(res => vid.onloadeddata = res);
+        vid.currentTime = Math.min(1, vid.duration / 2);
+        await new Promise(res => vid.onseeked = res);
+        const canvas = document.createElement('canvas');
+        canvas.width = vid.videoWidth;
+        canvas.height = vid.videoHeight;
+        canvas.getContext('2d').drawImage(vid, 0, 0);
+
+        // classify
+        const model = await modelPromise;
+        preds = await classifyFrame(canvas);
+        console.log('NSFW preds:', preds);
+      } catch (err) {
+        console.error(err);
+        statusTxt.textContent = 'Error scanning content.';
+        return;
+      }
+
+      // compute NSFW score
       const score = preds
         .filter(p => ['Porn','Hentai','Sexy'].includes(p.className))
         .reduce((sum,p) => sum + p.probability, 0);
       const code = customIn.value || deleteSel.value || '2m';
 
+      // upload helper
       const doUpload = () => {
         statusTxt.textContent = 'Uploading…';
         progressEl.style.display = 'block';
         firebaseUpload(
-          file,
-          code,
+          file, code,
           pct => progressEl.value = pct,
-          () => window.dispatchEvent(new CustomEvent('uploadComplete',{detail:{deleteAfter:code}})),
+          () => window.dispatchEvent(
+            new CustomEvent('uploadComplete',{detail:{deleteAfter:code}})
+          ),
           err => {
             console.error(err);
             statusTxt.textContent = 'Upload failed.';
@@ -243,27 +209,40 @@
         );
       };
 
+      // warn if NSFW
       if (score > 0.7) {
         statusTxt.textContent = '⚠️ NSFW detected.';
-        showWarningModal(doUpload);
+        if (confirm('Content may be inappropriate. Proceed?')) {
+          doUpload();
+        } else {
+          statusTxt.textContent = 'Upload cancelled.';
+        }
       } else {
         statusTxt.textContent = 'Content is clean. Uploading…';
         doUpload();
       }
     });
 
+    // 4) Countdown display
     let countdownInterval;
     window.addEventListener('uploadComplete', e => {
       clearInterval(countdownInterval);
-      const amt = parseInt(e.detail.deleteAfter), unit = e.detail.deleteAfter.slice(-1);
+      const amt = parseInt(e.detail.deleteAfter,10);
+      const unit = e.detail.deleteAfter.slice(-1);
       let ms = unit==='h'?amt*3600000:unit==='d'?amt*86400000:amt*60000;
       const end = Date.now()+ms;
       countdownInterval = setInterval(() => {
-        const diff = end-Date.now();
-        if (diff<=0) return clearInterval(countdownInterval);
-        const m = Math.floor(diff/60000), s = Math.floor((diff%60000)/1000);
-        document.getElementById('timeLeft').textContent = `${m}m ${s}s`;
-      },1000);
+        const diff = end - Date.now();
+        if (diff <= 0) {
+          clearInterval(countdownInterval);
+          statusTxt.textContent = 'File deleted.';
+          timeLeftEl.textContent = '00:00';
+          return;
+        }
+        const m = String(Math.floor(diff/60000)).padStart(2,'0');
+        const s = String(Math.floor((diff%60000)/1000)).padStart(2,'0');
+        timeLeftEl.textContent = `${m}:${s}`;
+      }, 1000);
     });
   </script>
 </body>
