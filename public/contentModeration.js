@@ -3,19 +3,31 @@
 export let model = null;
 
 /**
- * Load the NSFWJS model from jsDelivr over HTTPS.
- * No URL argument needed—the UMD bundle knows how to find its own "models/" dir.
+ * Loads the NSFWJS model from your own /model/ folder.
+ * Make sure public/model/ contains model.json, weights_manifest.json, and all .bin shards.
  */
 export async function loadModel() {
   if (!window.nsfwjs) {
-    throw new Error('NSFWJS global not found; did you include the <script src="...nsfwjs.min.js"> tag in index.html?');
+    throw new Error(
+      'NSFWJS global not found; please include `<script src="https://cdn.jsdelivr.net/npm/nsfwjs@2.4.0/dist/nsfwjs.min.js"></script>` in your index.html'
+    );
   }
-  model = await window.nsfwjs.load();  // ← fetches from https://cdn.jsdelivr.net/npm/nsfwjs@2.4.0/dist/models/…
+
+  // Local directory (with trailing slash)
+  const MODEL_URL = '/model/';
+
+  // NSFWJS will do MODEL_URL + 'model.json' + shard files
+  model = await window.nsfwjs.load(MODEL_URL);
   return model;
 }
 
+/**
+ * Takes a <canvas> and returns the NSFW predictions.
+ */
 export function classifyFrame(canvas) {
-  if (!model) throw new Error('Model not loaded. Call loadModel() first.');
+  if (!model) {
+    throw new Error('Model not loaded – call loadModel() first.');
+  }
   return model.classify(canvas);
 }
 
@@ -32,7 +44,7 @@ const timeLeftEl = document.getElementById('timeLeft');
 
 let modelPromise;
 
-// 1) Visual cue on file selection
+// 1) Show filename in the drop zone
 fileInput.addEventListener('change', () => {
   if (fileInput.files.length) {
     const name = fileInput.files[0].name;
@@ -46,7 +58,7 @@ fileInput.addEventListener('change', () => {
   }
 });
 
-// 2) Pre-load NSFW model
+// 2) Pre-load the NSFW model
 (async () => {
   statusTxt.textContent = 'Loading NSFW model…';
   try {
@@ -59,7 +71,7 @@ fileInput.addEventListener('change', () => {
   }
 })();
 
-// 3) Scan + upload flow
+// 3) Scan → then upload
 uploadBtn.addEventListener('click', async () => {
   if (!fileInput.files.length) {
     statusTxt.textContent = 'No file selected!';
@@ -70,12 +82,14 @@ uploadBtn.addEventListener('click', async () => {
 
   let preds;
   try {
+    // grab a frame around 1s in
     const vid = document.createElement('video');
     vid.src = URL.createObjectURL(file);
-    await new Promise(res => vid.onloadeddata = res);
+    await new Promise(res => (vid.onloadeddata = res));
     vid.currentTime = Math.min(1, vid.duration / 2);
-    await new Promise(res => vid.onseeked = res);
+    await new Promise(res => (vid.onseeked = res));
 
+    // draw to canvas
     const canvas = document.createElement('canvas');
     canvas.width = vid.videoWidth;
     canvas.height = vid.videoHeight;
@@ -90,9 +104,11 @@ uploadBtn.addEventListener('click', async () => {
     return;
   }
 
+  // compute NSFW score
   const score = preds
     .filter(p => ['Porn','Hentai','Sexy'].includes(p.className))
     .reduce((sum, p) => sum + p.probability, 0);
+
   const code = customIn.value || deleteSel.value || '2m';
 
   const doUpload = () => {
@@ -102,7 +118,9 @@ uploadBtn.addEventListener('click', async () => {
       file,
       code,
       pct => (progressEl.value = pct),
-      () => window.dispatchEvent(new CustomEvent('uploadComplete',{detail:{deleteAfter:code}})),
+      () => window.dispatchEvent(
+        new CustomEvent('uploadComplete', { detail:{ deleteAfter: code } })
+      ),
       err => {
         console.error(err);
         statusTxt.textContent = 'Upload failed.';
@@ -120,7 +138,7 @@ uploadBtn.addEventListener('click', async () => {
   }
 });
 
-// 4) Countdown display
+// 4) Show deletion countdown
 let countdownInterval;
 window.addEventListener('uploadComplete', e => {
   clearInterval(countdownInterval);
@@ -132,6 +150,7 @@ window.addEventListener('uploadComplete', e => {
     ? amt * 86400000
     : amt * 60000;
   const end = Date.now() + ms;
+
   countdownInterval = setInterval(() => {
     const diff = end - Date.now();
     if (diff <= 0) {
