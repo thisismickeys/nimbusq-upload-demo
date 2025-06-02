@@ -1,5 +1,3 @@
-// public/firebase.js
-
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
 import {
   getStorage,
@@ -7,15 +5,15 @@ import {
   uploadBytesResumable
 } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
 
-// Your Firebase config
+// Your Firebase config from .env
 const firebaseConfig = {
-  apiKey: "AIzaSyBs0wKx9YJKnoo5578Urop2gXXK5vbA5-Q",
-  authDomain: "nimbus-q.firebaseapp.com",
-  projectId: "nimbus-q",
-  storageBucket: "nimbus-q.firebasestorage.app",
-  messagingSenderId: "37946773673",
-  appId: "1:37946773673:web:207c75b86716502bb299b8",
-  measurementId: "G-2D6K67SZN6"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 // Initialize Firebase
