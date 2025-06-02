@@ -1,12 +1,14 @@
 {
-  "name": "client",
+  "name": "nimbusq-client",
+  "version": "1.0.0",
   "private": true,
-  "version": "0.0.0",
-  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
+  },
+  "dependencies": {
+    "firebase": "^10.7.0"
   },
   "devDependencies": {
     "vite": "^6.3.5"
