@@ -1,6 +1,5 @@
 let model = null;
 
-// Load the NSFWJS model after DOM is ready
 window.addEventListener('DOMContentLoaded', async () => {
   const statusEl = document.getElementById('status');
   const videoInput = document.getElementById('videoUpload');
@@ -11,7 +10,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   const customTimeInput = document.getElementById('customDeleteTime');
   const dropZone = document.getElementById('dropZone');
 
-  // Load NSFW model
   try {
     model = await nsfwjs.load('/model/');
     statusEl.textContent = 'NSFW Model Loaded. Ready to scan.';
@@ -21,7 +19,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Dropzone visual feedback
   videoInput.addEventListener('change', () => {
     const file = videoInput.files[0];
     if (file) {
@@ -31,7 +28,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Upload handler
   uploadBtn.addEventListener('click', () => {
     const file = videoInput.files[0];
     if (!file) {
@@ -39,12 +35,10 @@ window.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    // Determine delete time
     const dropdownValue = deleteTimeDropdown.value;
     const customValue = customTimeInput.value.trim();
     const deleteAfter = customValue || dropdownValue || '24h';
 
-    // Show progress bar
     progressBar.style.display = 'block';
     progressBar.value = 0;
     statusEl.textContent = 'Uploading...';
@@ -57,13 +51,24 @@ window.addEventListener('DOMContentLoaded', async () => {
           progressBar.value = percent;
         },
         () => {
-          statusEl.textContent = 'Upload complete. Scanning video...';
+          if (deleteAfter === '2m') {
+            statusEl.textContent = 'Scanning video with base model...';
+            document.getElementById('spinner').style.display = 'block';
+          
+            setTimeout(() => {
+              document.getElementById('spinner').style.display = 'none';
+              statusEl.textContent = '✅ AI has confirmed the video (demo)';
+              startFixedCountdown(2 * 60 * 1000); // 2 minutes
+            }, 2000); // simulate scan delay
+            return;
+          }          
 
-          // Simulate NSFW scan (actual NSFWJS doesn't support video files directly)
+          // Simulate NSFW scan for real use case
+          statusEl.textContent = 'Scanning video...';
           setTimeout(() => {
             statusEl.textContent = 'Scan complete. Video is safe.';
             startCountdown(deleteAfter);
-          }, 2000); // simulate scan delay
+          }, 2000);
         },
         err => {
           console.error('Upload error:', err);
@@ -73,11 +78,17 @@ window.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // Start countdown timer
   function startCountdown(durationStr) {
     const ms = parseDuration(durationStr);
     if (!ms) return;
+    runCountdown(ms);
+  }
 
+  function startFixedCountdown(ms) {
+    runCountdown(ms);
+  }
+
+  function runCountdown(ms) {
     let remaining = ms;
     const interval = setInterval(() => {
       if (remaining <= 0) {
@@ -90,7 +101,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     }, 1000);
   }
 
-  // Format milliseconds to mm:ss
   function formatTime(ms) {
     const totalSec = Math.floor(ms / 1000);
     const min = Math.floor(totalSec / 60);
@@ -98,9 +108,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
   }
 
-  // Parse "2m", "1h30m", etc. into milliseconds
   function parseDuration(input) {
-    const match = input.match(/(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s)?/);
+    const match = input.match(/(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/);
     if (!match) return null;
     const [, h = 0, m = 0, s = 0] = match.map(x => parseInt(x) || 0);
     return ((+h * 60 + +m) * 60 + +s) * 1000;

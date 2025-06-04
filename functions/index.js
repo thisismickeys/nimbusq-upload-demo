@@ -44,36 +44,6 @@ function parseDeleteAfter(input) {
   }
 }
 
-// ✅ On Upload: Schedule auto-deletion
-exports.scheduleFileDeletion = onObjectFinalized(
-  { region: "us-central1", memory: "256MiB" },
-  async (event) => {
-    const filePath = event.data.name;
-    const bucketName = event.data.bucket;
-    const metadata = event.data.metadata || {};
-    const deleteCode = metadata.deleteAfter;
-    const delay = parseDeleteAfter(deleteCode);
-
-    console.log(`📦 File uploaded: ${filePath}`);
-    console.log(`⏱️ Scheduling deletion in ${delay / 1000}s`);
-
-    setTimeout(async () => {
-      try {
-        const fileRef = gcs.bucket(bucketName).file(filePath);
-        const [exists] = await fileRef.exists();
-        if (exists) {
-          await fileRef.delete();
-          console.log(`🧹 File deleted: ${filePath}`);
-        } else {
-          console.log(`⚠️ Already deleted or missing: ${filePath}`);
-        }
-      } catch (err) {
-        console.error(`❌ Error deleting file ${filePath}:`, err);
-      }
-    }, delay);
-  }
-);
-
 // ✅ Express Upload API
 const app = express();
 app.use(cors({ origin: true }));
@@ -109,7 +79,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 // ✅ Deployable API Route
 exports.api = https.onRequest({ region: "us-central1" }, app);
 
-// ✅ Failsafe Deletion Tracker (Firestore)
+// ✅ TEMP: Restore for clean deletion
 exports.scheduleFailsafeDeletion = functions.storage.object().onFinalize(async (object) => {
   const filePath = object.name;
   const contentType = object.contentType;
@@ -128,6 +98,44 @@ exports.scheduleFailsafeDeletion = functions.storage.object().onFinalize(async (
 
   console.log(`🛡️ Failsafe scheduled for ${filePath} at ${new Date(expiresAt).toISOString()}`);
 });
+
+
+// ✅ Failsafe Deletion Tracker (Firestore)
+const MAX_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
+
+exports.scheduleFileDeletion = onObjectFinalized(
+  { region: "us-central1", memory: "256MiB" },
+  async (event) => {
+    const filePath = event.data.name;
+    const bucketName = event.data.bucket;
+    const metadata = event.data.metadata || {};
+    const deleteCode = metadata.deleteAfter;
+    const delay = parseDeleteAfter(deleteCode);
+
+    console.log(`📦 File uploaded: ${filePath}`);
+    console.log(`⏱️ Scheduling deletion in ${delay / 1000}s`);
+
+    if (delay > MAX_TIMEOUT_MS) {
+      console.log(`⚠️ Delay exceeds safe timeout. Relying on failsafe deletion.`);
+      return;
+    }
+
+    setTimeout(async () => {
+      try {
+        const fileRef = gcs.bucket(bucketName).file(filePath);
+        const [exists] = await fileRef.exists();
+        if (exists) {
+          await fileRef.delete();
+          console.log(`🧹 File deleted: ${filePath}`);
+        } else {
+          console.log(`⚠️ Already deleted or missing: ${filePath}`);
+        }
+      } catch (err) {
+        console.error(`❌ Error deleting file ${filePath}:`, err);
+      }
+    }, delay);
+  }
+);
 
 // ✅ Scheduled Cleanup Task (runs hourly)
 exports.cleanupExpiredFiles = functions.pubsub.schedule("every 60 minutes").onRun(async () => {
