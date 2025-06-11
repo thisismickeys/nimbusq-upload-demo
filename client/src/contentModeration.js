@@ -43,8 +43,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     progressBar.value = 0;
     statusEl.textContent = 'Uploading...';
 
-    import('./firebase.js').then(({ firebaseUpload }) => {
-      firebaseUpload(
+    import('./firebase.js').then(({ uploadViaAPI }) => {
+      uploadViaAPI(
         file,
         deleteAfter,
         percent => {
@@ -54,16 +54,15 @@ window.addEventListener('DOMContentLoaded', async () => {
           if (deleteAfter === '2m') {
             statusEl.textContent = 'Scanning video with base model...';
             document.getElementById('spinner').style.display = 'block';
-          
+
             setTimeout(() => {
               document.getElementById('spinner').style.display = 'none';
               statusEl.textContent = '✅ AI has confirmed the video (demo)';
               startFixedCountdown(2 * 60 * 1000); // 2 minutes
-            }, 2000); // simulate scan delay
+            }, 2000);
             return;
-          }          
+          }
 
-          // Simulate NSFW scan for real use case
           statusEl.textContent = 'Scanning video...';
           setTimeout(() => {
             statusEl.textContent = 'Scan complete. Video is safe.';

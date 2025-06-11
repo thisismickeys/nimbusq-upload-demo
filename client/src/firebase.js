@@ -1,9 +1,5 @@
+// Only keep this if you still use Firebase elsewhere (like auth or Firestore)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
-import {
-  getStorage,
-  ref,
-  uploadBytesResumable
-} from "https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js";
 
 // Your Firebase config from .env
 const firebaseConfig = {
@@ -18,29 +14,44 @@ const firebaseConfig = {
 
 console.log("FIREBASE CONFIG:", firebaseConfig);
 
-// Initialize Firebase
+// Initialize Firebase (still needed if other parts of app use it)
 const app = initializeApp(firebaseConfig);
-const storage = getStorage(app);
 
 /**
- * Uploads `file` to Storage under "uploads/…".  
- * Calls onProgress(percent), onSuccess(), onError(err).
+ * Uploads file via the backend API so it triggers all the scheduled deletion + Firestore logic.
+ * Calls onProgress (fake progress since API doesn’t stream), onSuccess(result), onError(error)
  */
-export function firebaseUpload(file, deleteAfter, onProgress, onSuccess, onError) {
-  const path = `uploads/${Date.now()}_${file.name}`;
-  const metadata = {
-    contentType: file.type,
-    customMetadata: { deleteAfter }
-  };
-  const uploadTask = uploadBytesResumable(ref(storage, path), file, metadata);
+export async function uploadViaAPI(file, deleteAfter = "2m", onProgress, onSuccess, onError) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("deleteAfter", deleteAfter);
+  formData.append("userTier", "demo");
+  formData.append("licenseeId", "demo");
 
-  uploadTask.on(
-    "state_changed",
-    snapshot => {
-      const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-      onProgress(pct);
-    },
-    error => onError(error),
-    () => onSuccess()
-  );
+  try {
+    // Optional: simulate basic progress since fetch doesn't track it natively
+    if (onProgress) {
+      onProgress(5);
+      setTimeout(() => onProgress(30), 200);
+      setTimeout(() => onProgress(75), 400);
+      setTimeout(() => onProgress(100), 700);
+    }
+
+    const response = await fetch("https://us-central1-nimbus-q.cloudfunctions.net/api/upload", {
+      method: "POST",
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || "Upload failed");
+    }
+
+    const result = await response.json();
+    console.log("✅ Upload via API result:", result);
+    if (onSuccess) onSuccess(result);
+  } catch (err) {
+    console.error("❌ Upload via API failed:", err);
+    if (onError) onError(err);
+  }
 }
