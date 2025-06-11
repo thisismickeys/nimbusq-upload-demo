@@ -26,9 +26,12 @@ admin.initializeApp();
 const bucket = admin.storage().bucket('nimbus-q.firebasestorage.app');
 const gcs = new Storage();
 
-// Use native Firestore admin SDK
-const db = admin.firestore(); // Use Admin SDK's built-in credentials
-
+// Use native Firestore via REST API instead of Admin SDK
+const { Firestore } = require('@google-cloud/firestore');
+const db = new Firestore({
+  projectId: 'nimbus-q',
+  keyFilename: undefined, // Use default credentials
+});
 setGlobalOptions({ memory: "512MiB", region: "us-central1" });
 
 // ✅ Configuration (License buyers can customize these)
@@ -166,33 +169,44 @@ exports.scheduleFileDeletion = onObjectFinalized(
     const uploadTime = new Date(event.data.timeCreated).getTime();
     const metadata = event.data.metadata || {};
 
-    // Only process video files
-    if (!contentType || !contentType.startsWith("video/")) return;
+    if (!filePath || !contentType || !contentType.startsWith("video/")) {
+      console.warn("🟡 Skipping non-video file or missing data");
+      return;
+    }
 
+    // Safe defaults
     const deleteAfter = metadata.deleteAfter || CONFIG.DEFAULT_DELETE_AFTER;
+    const userTier = metadata.userTier || "demo";
+    const licenseeId = metadata.licenseeId || "demo";
+    const uploadIP = metadata.uploadIP || "unknown";
+    const fileSize = metadata.fileSize || "unknown";
+
     const deleteDelayMs = parseDeleteAfter(deleteAfter);
     const expiresAt = uploadTime + deleteDelayMs;
 
+    const safeDocId = filePath.replace(/[^\w\-\.\/]/g, '_');
+
     console.log(`📦 File uploaded: ${filePath}`);
     console.log(`⏱️ Will expire at: ${new Date(expiresAt).toISOString()}`);
-    console.log(`👤 User: ${metadata.userTier} | Licensee: ${metadata.licenseeId || 'demo'}`);
+    console.log(`👤 User: ${userTier} | Licensee: ${licenseeId}`);
 
     try {
-      await db.collection("pending_deletions").add({
+      await db.collection("pending_deletions").doc(safeDocId).set({
         filePath,
         expiresAt,
         confirmedByAI: false,
         uploadTime,
         deleteAfter,
-        userTier: metadata.userTier || 'demo',
-        licenseeId: metadata.licenseeId || 'demo',
-        uploadIP: metadata.uploadIP || 'unknown',
-        fileSize: metadata.fileSize || 'unknown',
+        userTier,
+        licenseeId,
+        uploadIP,
+        fileSize,
         contentType
-      });
+      }, { merge: true });
+
       console.log(`🛡️ Deletion scheduled for ${filePath}`);
     } catch (error) {
-      console.error(`❌ Failed to schedule deletion for ${filePath}:`, error);
+      console.error(`❌ Failed to schedule deletion for ${filePath}:`, error.message || error);
     }
   }
 );
@@ -224,30 +238,33 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
     const deletions = [];
     snapshot.forEach(doc => {
       const data = doc.data();
-      const { filePath } = data;
+      const { originalFilePath, filePath } = data;
       
-      if (!filePath) {
+      // Use originalFilePath for deletion if available, otherwise fallback to filePath
+      const fileToDelete = originalFilePath || filePath;
+      
+      if (!fileToDelete) {
         console.warn(`⚠️ Document ${doc.id} missing filePath, skipping`);
         return;
       }
       
-      console.log(`🗑️ Attempting to delete: ${filePath} (expired at ${new Date(data.expiresAt).toISOString()})`);
+      console.log(`🗑️ Attempting to delete: ${fileToDelete} (expired at ${new Date(data.expiresAt).toISOString()})`);
       
       deletions.push(
-        bucket.file(filePath).delete()
+        bucket.file(fileToDelete).delete()
           .then(() => {
-            console.log(`✅ Successfully deleted expired file: ${filePath}`);
+            console.log(`✅ Successfully deleted expired file: ${fileToDelete}`);
             return doc.ref.delete();
           })
           .then(() => {
-            console.log(`✅ Removed tracking record for: ${filePath}`);
+            console.log(`✅ Removed tracking record for: ${fileToDelete}`);
           })
           .catch(err => {
             if (err.code === 404) {
-              console.log(`⚠️ File already deleted: ${filePath}, removing tracking record`);
+              console.log(`⚠️ File already deleted: ${fileToDelete}, removing tracking record`);
               return doc.ref.delete();
             } else {
-              console.error(`❌ Error deleting ${filePath}:`, err);
+              console.error(`❌ Error deleting ${fileToDelete}:`, err);
               throw err;
             }
           })
