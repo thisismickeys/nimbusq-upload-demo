@@ -18,25 +18,24 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 
-// Configure FFmpeg
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
-// ✅ Initialize Firebase Admin
+// ✅ Firebase Initialization
 admin.initializeApp();
 const bucket = admin.storage().bucket('nimbus-q.firebasestorage.app');
 const gcs = new Storage();
-const db = admin.firestore(); // ✅ Firestore via Admin SDK
+const db = admin.firestore();
 
 setGlobalOptions({ memory: "512MiB", region: "us-central1" });
 
-// ✅ Configuration
+// ✅ Config
 const CONFIG = {
-  CLEANUP_SCHEDULE: "every 24 hours", // Change to "every 2 minutes" if needed
+  CLEANUP_SCHEDULE: "every 24 hours",
   DEFAULT_DELETE_AFTER: "24h",
   DEMO_MODE: true,
 };
 
-// ✅ Helper: Parse deletion time
+// ✅ Time Parser
 function parseDeleteAfter(input) {
   if (!input) return parseDeleteAfter(CONFIG.DEFAULT_DELETE_AFTER);
   const match = input.match(/^([0-9]+)([mhd])$/);
@@ -51,7 +50,7 @@ function parseDeleteAfter(input) {
   }
 }
 
-// ✅ Express Setup
+// ✅ Express Upload API
 const app = express();
 app.use(cors({ origin: true }));
 
@@ -61,24 +60,21 @@ const RATE_LIMIT_WINDOW = 60 * 60 * 1000;
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 100 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('video/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only video files are allowed'), false);
-    }
+    if (file.mimetype.startsWith('video/')) cb(null, true);
+    else cb(new Error('Only video files are allowed'), false);
   }
 });
 
 const checkRateLimit = (req, res, next) => {
   const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
   const now = Date.now();
+
   for (let [ip, data] of rateLimitMap.entries()) {
-    if (now - data.firstRequest > RATE_LIMIT_WINDOW) {
-      rateLimitMap.delete(ip);
-    }
+    if (now - data.firstRequest > RATE_LIMIT_WINDOW) rateLimitMap.delete(ip);
   }
+
   const userData = rateLimitMap.get(clientIP);
   if (!userData) {
     rateLimitMap.set(clientIP, { firstRequest: now, count: 1 });
@@ -137,7 +133,7 @@ app.post("/upload", checkRateLimit, upload.single("file"), async (req, res) => {
 
 exports.api = https.onRequest({ region: "us-central1" }, app);
 
-// ✅ Auto-Schedule Deletion
+// ✅ Schedule File Deletion
 exports.scheduleFileDeletion = onObjectFinalized(
   { region: "us-central1", memory: "512MiB" },
   async (event) => {
@@ -146,24 +142,17 @@ exports.scheduleFileDeletion = onObjectFinalized(
     const uploadTime = new Date(event.data.timeCreated).getTime();
     const metadata = event.data.metadata || {};
 
-    if (!filePath || !contentType || !contentType.startsWith("video/")) {
-      console.warn("🟡 Skipping non-video file or missing data");
-      return;
-    }
+    if (!filePath || !contentType?.startsWith("video/")) return;
 
     const deleteAfter = metadata.deleteAfter || CONFIG.DEFAULT_DELETE_AFTER;
-    const userTier = metadata.userTier || "demo";
-    const licenseeId = metadata.licenseeId || "demo";
-    const uploadIP = metadata.uploadIP || "unknown";
-    const fileSize = metadata.fileSize || "unknown";
     const deleteDelayMs = parseDeleteAfter(deleteAfter);
     const expiresAt = uploadTime + deleteDelayMs;
 
-    const safeDocId = path.basename(filePath).replace(/[^\w\-\.]/g, '_'); // ✅ FINAL FIX HERE
+    const safeDocId = path.basename(filePath).replace(/[^\w\-\.]/g, '_');
 
     console.log(`📦 File uploaded: ${filePath}`);
     console.log(`⏱️ Will expire at: ${new Date(expiresAt).toISOString()}`);
-    console.log(`👤 User: ${userTier} | Licensee: ${licenseeId}`);
+    console.log(`👤 User: ${metadata.userTier || 'demo'} | Licensee: ${metadata.licenseeId || 'demo'}`);
 
     try {
       await db.collection("pending_deletions").doc(safeDocId).set({
@@ -172,10 +161,10 @@ exports.scheduleFileDeletion = onObjectFinalized(
         confirmedByAI: false,
         uploadTime,
         deleteAfter,
-        userTier,
-        licenseeId,
-        uploadIP,
-        fileSize,
+        userTier: metadata.userTier || 'demo',
+        licenseeId: metadata.licenseeId || 'demo',
+        uploadIP: metadata.uploadIP || 'unknown',
+        fileSize: metadata.fileSize || 'unknown',
         contentType
       }, { merge: true });
 
@@ -193,7 +182,7 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
   memory: "512MiB"
 }, async () => {
   const now = Date.now();
-  console.log(`🧹 Running cleanup at ${new Date(now).toISOString()}`);
+  console.log(`🧹 Cleanup triggered at ${new Date(now).toISOString()}`);
 
   try {
     const snapshot = await db.collection("pending_deletions")
@@ -201,46 +190,42 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
       .get();
 
     if (snapshot.empty) {
-      console.log(`🟡 No expired files found.`);
+      console.log("🟡 No expired files found.");
       return;
     }
 
-    const deletions = [];
-    snapshot.forEach(doc => {
+    const deletions = snapshot.docs.map(async doc => {
       const data = doc.data();
-      const { originalFilePath, filePath } = data;
-      const fileToDelete = originalFilePath || filePath;
-
+      const fileToDelete = data.originalFilePath || data.filePath;
       if (!fileToDelete) {
-        console.warn(`⚠️ Document ${doc.id} missing filePath, skipping`);
+        console.warn(`⚠️ Missing filePath in doc ${doc.id}`);
         return;
       }
 
-      deletions.push(
-        bucket.file(fileToDelete).delete()
-          .then(() => {
-            console.log(`✅ Deleted expired file: ${fileToDelete}`);
-            return doc.ref.delete();
-          })
-          .catch(err => {
-            if (err.code === 404) {
-              console.log(`⚠️ File not found: ${fileToDelete}, deleting record`);
-              return doc.ref.delete();
-            } else {
-              console.error(`❌ Error deleting ${fileToDelete}:`, err);
-            }
-          })
-      );
+      try {
+        await bucket.file(fileToDelete).delete();
+        console.log(`✅ Deleted file: ${fileToDelete}`);
+      } catch (err) {
+        if (err.code === 404) {
+          console.log(`⚠️ File already gone: ${fileToDelete}`);
+        } else {
+          console.error(`❌ Deletion error for ${fileToDelete}:`, err);
+          return;
+        }
+      }
+
+      await doc.ref.delete();
+      console.log(`🧼 Removed tracking doc: ${doc.id}`);
     });
 
     await Promise.all(deletions);
-    console.log(`🎉 Cleanup completed`);
-  } catch (error) {
-    console.error(`💥 Cleanup failed:`, error.message || error);
+    console.log("🎉 Cleanup finished.");
+  } catch (err) {
+    console.error(`💥 Cleanup failed:`, err.message || err);
   }
 });
 
-// ✅ Optional NSFW Scanning
+// ✅ NSFW Scan (optional, skips in demo mode)
 exports.scanNSFWOnUpload = onObjectFinalized(
   { memory: "512MiB", region: "us-central1" },
   async (event) => {
@@ -258,6 +243,7 @@ exports.scanNSFWOnUpload = onObjectFinalized(
 
     try {
       await fileRef.download({ destination: tmpLocalPath });
+
       const framePath = `${tmpLocalPath}.jpg`;
       await new Promise((resolve, reject) => {
         ffmpeg(tmpLocalPath)
