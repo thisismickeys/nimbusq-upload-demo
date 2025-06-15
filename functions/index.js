@@ -188,10 +188,18 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
   console.log(`🧹 Cleanup triggered at ${new Date(now).toISOString()}`);
 
   try {
-    console.log("📊 Verifying Firestore connection...");
-    const testSnapshot = await db.collection("pending_deletions").limit(1).get();
-    console.log(`📋 Firestore is accessible, collection has ${testSnapshot.size} docs`);
+    console.log("📊 Verifying Firestore connection and collection existence...");
 
+    // Safe probe for collection existence
+    const testSnapshot = await db.collection("pending_deletions").limit(1).get();
+
+    if (testSnapshot.empty) {
+      console.log("📭 Firestore collection 'pending_deletions' exists but is empty.");
+    } else {
+      console.log(`📋 Firestore collection exists. Sample doc ID: ${testSnapshot.docs[0].id}`);
+    }
+
+    // Now fetch expired deletions
     const snapshot = await db.collection("pending_deletions")
       .where("expiresAt", "<=", now)
       .get();
@@ -226,6 +234,24 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
       } catch (err) {
         console.error(`❌ Deletion error for ${fileToDelete}:`, err);
       }
+
+      try {
+        await doc.ref.delete();
+        console.log(`🧼 Removed tracking doc: ${doc.id}`);
+      } catch (err) {
+        console.error(`❌ Failed to delete Firestore doc ${doc.id}:`, err);
+      }
+    });
+
+    await Promise.all(deletions);
+    console.log("🎉 Cleanup finished.");
+  } catch (err) {
+    console.error("💥 Cleanup function crashed:");
+    console.error("Code:", err.code);
+    console.error("Message:", err.message);
+    console.error("Stack:", err.stack);
+  }
+});
 
       // Always delete the Firestore doc
       try {
