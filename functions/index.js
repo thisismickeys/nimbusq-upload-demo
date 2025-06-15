@@ -24,7 +24,7 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 admin.initializeApp();
 const bucket = admin.storage().bucket('nimbus-q.firebasestorage.app');
 const gcs = new Storage();
-const db = admin.firestore();
+const db = admin.firestore(); // ✅ Clean fix here
 
 setGlobalOptions({ memory: "512MiB", region: "us-central1" });
 
@@ -50,7 +50,7 @@ function parseDeleteAfter(input) {
   }
 }
 
-// ✅ Express Upload API
+// ✅ Express Setup
 const app = express();
 app.use(cors({ origin: true }));
 
@@ -203,7 +203,8 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
       }
 
       try {
-        await bucket.file(fileToDelete).delete();
+        const correctedBucket = admin.storage().bucket("nimbus-q.appspot.com"); // ✅ Corrected
+        await correctedBucket.file(fileToDelete).delete();
         console.log(`✅ Deleted file: ${fileToDelete}`);
       } catch (err) {
         if (err.code === 404) {
