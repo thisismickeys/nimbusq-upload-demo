@@ -21,12 +21,12 @@ const app = initializeApp(firebaseConfig);
  * Uploads file via the backend API so it triggers all the scheduled deletion + Firestore logic.
  * Calls onProgress (fake progress since API doesn’t stream), onSuccess(result), onError(error)
  */
-export async function uploadViaAPI(file, deleteAfter = "2m", onProgress, onSuccess, onError) {
+export async function uploadViaAPI(file, deleteAfter = "2m", onProgress, onSuccess, onError, options = {}) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("deleteAfter", deleteAfter);
-  formData.append("userTier", "demo");
-  formData.append("licenseeId", "demo");
+  formData.append("userTier", options.userTier || "demo");
+  formData.append("licenseeId", options.licenseeId || "demo");
 
   try {
     // Optional: simulate basic progress since fetch doesn't track it natively

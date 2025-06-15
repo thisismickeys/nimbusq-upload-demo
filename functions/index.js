@@ -22,9 +22,9 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 // ✅ Firebase Initialization
 admin.initializeApp();
-const bucket = admin.storage().bucket('nimbus-q.firebasestorage.app');
+const bucket = admin.storage().bucket('nimbus-q.appspot.com'); // ✅ Fixed bucket name
 const gcs = new Storage();
-const db = admin.firestore(); // ✅ Clean fix here
+const db = admin.firestore();
 
 setGlobalOptions({ memory: "512MiB", region: "us-central1" });
 
@@ -203,14 +203,14 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
       }
 
       try {
-        const correctedBucket = admin.storage().bucket("nimbus-q.appspot.com"); // ✅ Corrected
+        const correctedBucket = admin.storage().bucket("nimbus-q.appspot.com");
         await correctedBucket.file(fileToDelete).delete();
         console.log(`✅ Deleted file: ${fileToDelete}`);
       } catch (err) {
         if (err.code === 404) {
           console.log(`⚠️ File already gone: ${fileToDelete}`);
         } else {
-          console.error(`❌ Deletion error for ${fileToDelete}:`, err);
+          console.error(`❌ Deletion error for ${fileToDelete}: ${err.message || err}`);
           return;
         }
       }
@@ -222,7 +222,7 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
     await Promise.all(deletions);
     console.log("🎉 Cleanup finished.");
   } catch (err) {
-    console.error(`💥 Cleanup failed:`, err.message || err);
+    console.error(`💥 Cleanup failed: ${err.message || err}`);
   }
 });
 
