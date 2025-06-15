@@ -22,7 +22,7 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 // ✅ Firebase Initialization
 admin.initializeApp();
-const bucket = admin.storage().bucket('nimbus-q.appspot.com'); // ✅ Fixed bucket name
+const bucket = admin.storage().bucket('nimbus-q.appspot.com');
 const gcs = new Storage();
 const db = admin.firestore();
 
@@ -133,8 +133,8 @@ app.post("/upload", checkRateLimit, upload.single("file"), async (req, res) => {
 
 exports.api = https.onRequest({ region: "us-central1" }, app);
 
-// ✅ Schedule File Deletion
-exports.scheduleFileDeletion = onObjectFinalized(
+// ✅ Finalized File Trigger → Safe Scheduling
+exports.handleFileFinalize = onObjectFinalized(
   { region: "us-central1", memory: "512MiB" },
   async (event) => {
     const filePath = event.data.name;
@@ -149,12 +149,15 @@ exports.scheduleFileDeletion = onObjectFinalized(
     const expiresAt = uploadTime + deleteDelayMs;
 
     const safeDocId = path.basename(filePath).replace(/[^\w\-\.]/g, '_');
-
-    console.log(`📦 File uploaded: ${filePath}`);
-    console.log(`⏱️ Will expire at: ${new Date(expiresAt).toISOString()}`);
-    console.log(`👤 User: ${metadata.userTier || 'demo'} | Licensee: ${metadata.licenseeId || 'demo'}`);
+    const storageBucket = admin.storage().bucket("nimbus-q.appspot.com");
 
     try {
+      const [exists] = await storageBucket.file(filePath).exists();
+      if (!exists) {
+        console.warn(`⚠️ File not found in bucket: ${filePath}. Skipping Firestore entry.`);
+        return;
+      }
+
       await db.collection("pending_deletions").doc(safeDocId).set({
         filePath,
         expiresAt,
@@ -170,12 +173,12 @@ exports.scheduleFileDeletion = onObjectFinalized(
 
       console.log(`🛡️ Deletion scheduled for ${filePath}`);
     } catch (error) {
-      console.error(`❌ Failed to schedule deletion for ${filePath}:`, error.message || error);
+      console.error(`❌ Failed to schedule deletion for ${filePath}: ${error.message || error}`);
     }
   }
 );
 
-// ✅ Cleanup Expired Files
+// ✅ Scheduled Cleanup
 exports.cleanupExpiredFiles = scheduler.onSchedule({
   schedule: CONFIG.CLEANUP_SCHEDULE,
   region: "us-central1",
@@ -226,7 +229,7 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
   }
 });
 
-// ✅ NSFW Scan (optional, skips in demo mode)
+// ✅ Optional NSFW Scan (skipped in demo mode)
 exports.scanNSFWOnUpload = onObjectFinalized(
   { memory: "512MiB", region: "us-central1" },
   async (event) => {
