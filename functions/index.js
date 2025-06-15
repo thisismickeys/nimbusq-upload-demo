@@ -188,9 +188,15 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
   console.log(`🧹 Cleanup triggered at ${new Date(now).toISOString()}`);
 
   try {
+    console.log("📊 Verifying Firestore connection...");
+    const testSnapshot = await db.collection("pending_deletions").limit(1).get();
+    console.log(`📋 Firestore is accessible, collection has ${testSnapshot.size} docs`);
+
     const snapshot = await db.collection("pending_deletions")
       .where("expiresAt", "<=", now)
       .get();
+
+    console.log(`🔍 Found ${snapshot.size} expired document(s)`);
 
     if (snapshot.empty) {
       console.log("🟡 No expired files found.");
@@ -200,6 +206,8 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
     const deletions = snapshot.docs.map(async doc => {
       const data = doc.data();
       const fileToDelete = data.originalFilePath || data.filePath;
+      console.log(`🗂️ Processing doc ${doc.id} for file: ${fileToDelete}`);
+
       if (!fileToDelete) {
         console.warn(`⚠️ Missing filePath in doc ${doc.id}`);
         return;
@@ -207,25 +215,36 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
 
       try {
         const correctedBucket = admin.storage().bucket("nimbus-q.appspot.com");
-        await correctedBucket.file(fileToDelete).delete();
-        console.log(`✅ Deleted file: ${fileToDelete}`);
-      } catch (err) {
-        if (err.code === 404) {
-          console.log(`⚠️ File already gone: ${fileToDelete}`);
+        const [exists] = await correctedBucket.file(fileToDelete).exists();
+
+        if (exists) {
+          await correctedBucket.file(fileToDelete).delete();
+          console.log(`✅ Deleted file: ${fileToDelete}`);
         } else {
-          console.error(`❌ Deletion error for ${fileToDelete}: ${err.message || err}`);
-          return;
+          console.log(`⚠️ File already gone or inaccessible: ${fileToDelete}`);
         }
+      } catch (err) {
+        console.error(`❌ Deletion error for ${fileToDelete}:`, err);
       }
 
-      await doc.ref.delete();
-      console.log(`🧼 Removed tracking doc: ${doc.id}`);
+      // Always delete the Firestore doc
+      try {
+        await doc.ref.delete();
+        console.log(`🧼 Removed tracking doc: ${doc.id}`);
+      } catch (err) {
+        console.error(`❌ Failed to delete Firestore doc ${doc.id}:`, err);
+      }
     });
 
     await Promise.all(deletions);
     console.log("🎉 Cleanup finished.");
   } catch (err) {
-    console.error(`💥 Cleanup failed: ${err.message || err}`);
+    console.error("💥 Cleanup failed:", err);
+    console.error("Error details:", {
+      code: err.code,
+      message: err.message,
+      stack: err.stack
+    });
   }
 });
 
