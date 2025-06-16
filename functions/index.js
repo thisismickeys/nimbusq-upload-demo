@@ -133,6 +133,7 @@ exports.api = https.onRequest({ region: "us-central1" }, app);
 exports.handleFileFinalize = onObjectFinalized({
   region: "us-central1",
   memory: "512MiB",
+  bucket: "nimbus-q-clean"
 }, async (event) => {
   const filePath = event.data.name;
   const contentType = event.data.contentType;
