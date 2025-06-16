@@ -70,11 +70,9 @@ const upload = multer({
 const checkRateLimit = (req, res, next) => {
   const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
   const now = Date.now();
-
   for (let [ip, data] of rateLimitMap.entries()) {
     if (now - data.firstRequest > RATE_LIMIT_WINDOW) rateLimitMap.delete(ip);
   }
-
   const userData = rateLimitMap.get(clientIP);
   if (!userData) {
     rateLimitMap.set(clientIP, { firstRequest: now, count: 1 });
@@ -134,49 +132,46 @@ app.post("/upload", checkRateLimit, upload.single("file"), async (req, res) => {
 exports.api = https.onRequest({ region: "us-central1" }, app);
 
 // ✅ Finalized File Trigger → Safe Scheduling
-exports.handleFileFinalize = onObjectFinalized(
-  { region: "us-central1", memory: "512MiB" },
-  async (event) => {
-    const filePath = event.data.name;
-    const contentType = event.data.contentType;
-    const uploadTime = new Date(event.data.timeCreated).getTime();
-    const metadata = event.data.metadata || {};
+exports.handleFileFinalize = onObjectFinalized({ region: "us-central1", memory: "512MiB" }, async (event) => {
+  const filePath = event.data.name;
+  const contentType = event.data.contentType;
+  const uploadTime = new Date(event.data.timeCreated).getTime();
+  const metadata = event.data.metadata || {};
 
-    if (!filePath || !contentType?.startsWith("video/")) return;
+  if (!filePath || !contentType?.startsWith("video/")) return;
 
-    const deleteAfter = metadata.deleteAfter || CONFIG.DEFAULT_DELETE_AFTER;
-    const deleteDelayMs = parseDeleteAfter(deleteAfter);
-    const expiresAt = uploadTime + deleteDelayMs;
+  const deleteAfter = metadata.deleteAfter || CONFIG.DEFAULT_DELETE_AFTER;
+  const deleteDelayMs = parseDeleteAfter(deleteAfter);
+  const expiresAt = uploadTime + deleteDelayMs;
 
-    const safeDocId = path.basename(filePath).replace(/[^\w\-\.]/g, '_');
-    const storageBucket = admin.storage().bucket("nimbus-q.appspot.com");
+  const safeDocId = path.basename(filePath).replace(/[^\w\-\.]/g, '_');
+  const storageBucket = admin.storage().bucket("nimbus-q.appspot.com");
 
-    try {
-      const [exists] = await storageBucket.file(filePath).exists();
-      if (!exists) {
-        console.warn(`⚠️ File not found in bucket: ${filePath}. Skipping Firestore entry.`);
-        return;
-      }
-
-      await db.collection("pending_deletions").doc(safeDocId).set({
-        filePath,
-        expiresAt,
-        confirmedByAI: false,
-        uploadTime,
-        deleteAfter,
-        userTier: metadata.userTier || 'demo',
-        licenseeId: metadata.licenseeId || 'demo',
-        uploadIP: metadata.uploadIP || 'unknown',
-        fileSize: metadata.fileSize || 'unknown',
-        contentType
-      }, { merge: true });
-
-      console.log(`🛡️ Deletion scheduled for ${filePath}`);
-    } catch (error) {
-      console.error(`❌ Failed to schedule deletion for ${filePath}: ${error.message || error}`);
+  try {
+    const [exists] = await storageBucket.file(filePath).exists();
+    if (!exists) {
+      console.warn(`⚠️ File not found in bucket: ${filePath}. Skipping Firestore entry.`);
+      return;
     }
+
+    await db.collection("pending_deletions").doc(safeDocId).set({
+      filePath,
+      expiresAt,
+      confirmedByAI: false,
+      uploadTime,
+      deleteAfter,
+      userTier: metadata.userTier || 'demo',
+      licenseeId: metadata.licenseeId || 'demo',
+      uploadIP: metadata.uploadIP || 'unknown',
+      fileSize: metadata.fileSize || 'unknown',
+      contentType
+    }, { merge: true });
+
+    console.log(`🛡️ Deletion scheduled for ${filePath}`);
+  } catch (error) {
+    console.error(`❌ Failed to schedule deletion for ${filePath}: ${error.message || error}`);
   }
-);
+});
 
 // ✅ Scheduled Cleanup
 exports.cleanupExpiredFiles = scheduler.onSchedule({
@@ -188,33 +183,18 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
   console.log(`🧹 Cleanup triggered at ${new Date(now).toISOString()}`);
 
   try {
-    console.log("📊 Verifying Firestore connection and collection existence...");
-
-    // Safe probe for collection existence
-    const testSnapshot = await db.collection("pending_deletions").limit(1).get();
-
-    if (testSnapshot.empty) {
-      console.log("📭 Firestore collection 'pending_deletions' exists but is empty.");
-    } else {
-      console.log(`📋 Firestore collection exists. Sample doc ID: ${testSnapshot.docs[0].id}`);
-    }
-
-    // Now fetch expired deletions
     const snapshot = await db.collection("pending_deletions")
       .where("expiresAt", "<=", now)
       .get();
-
-    console.log(`🔍 Found ${snapshot.size} expired document(s)`);
 
     if (snapshot.empty) {
       console.log("🟡 No expired files found.");
       return;
     }
 
-    const deletions = snapshot.docs.map(async doc => {
+    const deletions = snapshot.docs.map(doc => (async () => {
       const data = doc.data();
       const fileToDelete = data.originalFilePath || data.filePath;
-      console.log(`🗂️ Processing doc ${doc.id} for file: ${fileToDelete}`);
 
       if (!fileToDelete) {
         console.warn(`⚠️ Missing filePath in doc ${doc.id}`);
@@ -229,7 +209,7 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
           await correctedBucket.file(fileToDelete).delete();
           console.log(`✅ Deleted file: ${fileToDelete}`);
         } else {
-          console.log(`⚠️ File already gone or inaccessible: ${fileToDelete}`);
+          console.log(`⚠️ File already gone: ${fileToDelete}`);
         }
       } catch (err) {
         console.error(`❌ Deletion error for ${fileToDelete}:`, err);
@@ -241,102 +221,11 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
       } catch (err) {
         console.error(`❌ Failed to delete Firestore doc ${doc.id}:`, err);
       }
-    });
+    })());
 
     await Promise.all(deletions);
     console.log("🎉 Cleanup finished.");
   } catch (err) {
-    console.error("💥 Cleanup function crashed:");
-    console.error("Code:", err.code);
-    console.error("Message:", err.message);
-    console.error("Stack:", err.stack);
+    console.error("💥 Cleanup function crashed:", err);
   }
 });
-
-      // Always delete the Firestore doc
-      try {
-        await doc.ref.delete();
-        console.log(`🧼 Removed tracking doc: ${doc.id}`);
-      } catch (err) {
-        console.error(`❌ Failed to delete Firestore doc ${doc.id}:`, err);
-      }
-    });
-
-    await Promise.all(deletions);
-    console.log("🎉 Cleanup finished.");
-  } catch (err) {
-    console.error("💥 Cleanup failed:", err);
-    console.error("Error details:", {
-      code: err.code,
-      message: err.message,
-      stack: err.stack
-    });
-  }
-});
-
-// ✅ Optional NSFW Scan (skipped in demo mode)
-exports.scanNSFWOnUpload = onObjectFinalized(
-  { memory: "512MiB", region: "us-central1" },
-  async (event) => {
-    if (CONFIG.DEMO_MODE) {
-      console.log(`🎭 Demo mode: Skipping NSFW scan for ${event.data.name}`);
-      return;
-    }
-
-    const { name: filePath, bucket: bucketName, contentType } = event.data;
-    if (!contentType?.startsWith("video/")) return;
-
-    const bucketRef = gcs.bucket(bucketName);
-    const fileRef = bucketRef.file(filePath);
-    const tmpLocalPath = path.join(os.tmpdir(), path.basename(filePath));
-
-    try {
-      await fileRef.download({ destination: tmpLocalPath });
-
-      const framePath = `${tmpLocalPath}.jpg`;
-      await new Promise((resolve, reject) => {
-        ffmpeg(tmpLocalPath)
-          .outputOptions(["-vf", "scale=224:224", "-vframes", "1"])
-          .output(framePath)
-          .on("end", resolve)
-          .on("error", reject)
-          .run();
-      });
-
-      const imageBuffer = fs.readFileSync(framePath);
-      const imgTensor = tf.node.decodeImage(imageBuffer, 3);
-      const model = await nsfw.load();
-      const preds = await model.classify(imgTensor);
-      imgTensor.dispose();
-
-      const pornScore = preds.find(p => p.className === "Porn")?.probability || 0;
-      const isNSFW = pornScore > 0.7;
-
-      await fileRef.setMetadata({
-        metadata: {
-          nsfw: isNSFW.toString(),
-          scanResult: isNSFW ? 'rejected' : 'clean',
-          aiProcessed: 'true',
-          scanTimestamp: new Date().toISOString()
-        }
-      });
-
-      const snapshot = await db.collection("pending_deletions")
-        .where("filePath", "==", filePath)
-        .limit(1)
-        .get();
-
-      if (!snapshot.empty) {
-        await snapshot.docs[0].ref.update({
-          confirmedByAI: true,
-          scanResult: isNSFW ? 'rejected' : 'clean'
-        });
-      }
-
-      fs.unlinkSync(tmpLocalPath);
-      fs.unlinkSync(framePath);
-    } catch (error) {
-      console.error(`❌ NSFW scan failed for ${filePath}:`, error);
-    }
-  }
-);
