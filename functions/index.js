@@ -20,7 +20,7 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 // ✅ Firebase Initialization
 admin.initializeApp();
-const bucket = admin.storage().bucket('nimbus-q.appspot.com');
+const bucket = admin.storage().bucket('nimbus-q-clean');
 const gcs = new Storage();
 const db = admin.firestore();
 
@@ -146,24 +146,25 @@ exports.handleFileFinalize = onObjectFinalized({
   const expiresAt = uploadTime + deleteDelayMs;
 
   const safeDocId = path.basename(filePath).replace(/[^\w\-\.]/g, '_');
-  const bucketName = event.data.bucket;
+  const bucketName = event.data.bucket || 'nimbus-q-clean';
   const storageBucket = gcs.bucket(bucketName);
 
-  // Retry logic to wait for file
+  // ✅ Retry logic to wait for file
   const maxRetries = 5;
   let fileExists = false;
+
   for (let i = 0; i < maxRetries; i++) {
     const [exists] = await storageBucket.file(filePath).exists();
     if (exists) {
       fileExists = true;
       break;
     }
-    console.log(`⏳ Retry ${i + 1}/${maxRetries}: File not found — waiting...`);
+    console.log(`⏳ Retry ${i + 1}/${maxRetries}: File not found in ${bucketName} — waiting...`);
     await new Promise(resolve => setTimeout(resolve, 500));
   }
 
   if (!fileExists) {
-    console.warn(`❌ Still couldn't find file in bucket: ${filePath}. Skipping Firestore entry.`);
+    console.warn(`❌ Still couldn't find file in bucket: ${bucketName}/${filePath}. Skipping Firestore entry.`);
     return;
   }
 
