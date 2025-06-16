@@ -4,7 +4,6 @@ const { https } = require("firebase-functions/v2");
 const { setGlobalOptions } = require("firebase-functions/v2");
 const { scheduler } = require("firebase-functions/v2");
 const { Storage } = require("@google-cloud/storage");
-const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const express = require("express");
 const multer = require("multer");
@@ -24,6 +23,7 @@ admin.initializeApp();
 const bucket = admin.storage().bucket('nimbus-q.appspot.com');
 const gcs = new Storage();
 const db = admin.firestore();
+
 setGlobalOptions({ memory: "512MiB", region: "us-central1" });
 
 // ✅ Config
@@ -135,6 +135,8 @@ exports.handleFileFinalize = onObjectFinalized({ region: "us-central1", memory: 
   const contentType = event.data.contentType;
   const uploadTime = new Date(event.data.timeCreated).getTime();
   const metadata = event.data.metadata || {};
+  const bucketName = event.data.bucket;
+  const storageBucket = gcs.bucket(bucketName);
 
   if (!filePath || !contentType?.startsWith("video/")) return;
 
@@ -143,20 +145,17 @@ exports.handleFileFinalize = onObjectFinalized({ region: "us-central1", memory: 
   const expiresAt = uploadTime + deleteDelayMs;
 
   const safeDocId = path.basename(filePath).replace(/[^\w\-\.]/g, '_');
-  const storageBucket = admin.storage().bucket("nimbus-q.appspot.com");
 
-  // ⏳ Retry logic: wait a bit if the file isn't found immediately
   const maxRetries = 5;
   let fileExists = false;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  for (let i = 0; i < maxRetries; i++) {
     const [exists] = await storageBucket.file(filePath).exists();
     if (exists) {
       fileExists = true;
       break;
     }
-    console.log(`⏳ Retry ${attempt}/${maxRetries}: File not found yet — waiting...`);
-    await new Promise(resolve => setTimeout(resolve, 500)); // wait 500ms before retry
+    console.log(`⏳ Retry ${i + 1}/${maxRetries}: File not found — waiting...`);
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
   if (!fileExists) {
@@ -180,7 +179,7 @@ exports.handleFileFinalize = onObjectFinalized({ region: "us-central1", memory: 
 
     console.log(`🛡️ Deletion scheduled for ${filePath}`);
   } catch (error) {
-    console.error(`❌ Failed to schedule deletion for ${filePath}: ${error.message || error}`);
+    console.error(`❌ Firestore write failed for ${filePath}:`, error.message);
   }
 });
 
