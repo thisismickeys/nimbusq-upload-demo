@@ -9,7 +9,6 @@ const admin = require("firebase-admin");
 const express = require("express");
 const multer = require("multer");
 const cors = require("cors");
-
 const tf = require('@tensorflow/tfjs-node');
 const nsfw = require('nsfwjs');
 const ffmpeg = require('fluent-ffmpeg');
@@ -25,7 +24,6 @@ admin.initializeApp();
 const bucket = admin.storage().bucket('nimbus-q.appspot.com');
 const gcs = new Storage();
 const db = admin.firestore();
-
 setGlobalOptions({ memory: "512MiB", region: "us-central1" });
 
 // ✅ Config
@@ -131,7 +129,7 @@ app.post("/upload", checkRateLimit, upload.single("file"), async (req, res) => {
 
 exports.api = https.onRequest({ region: "us-central1" }, app);
 
-// ✅ Finalized File Trigger → Safe Scheduling
+// ✅ Finalized File Trigger → Schedule Deletion
 exports.handleFileFinalize = onObjectFinalized({ region: "us-central1", memory: "512MiB" }, async (event) => {
   const filePath = event.data.name;
   const contentType = event.data.contentType;
@@ -145,10 +143,9 @@ exports.handleFileFinalize = onObjectFinalized({ region: "us-central1", memory: 
   const expiresAt = uploadTime + deleteDelayMs;
 
   const safeDocId = path.basename(filePath).replace(/[^\w\-\.]/g, '_');
-  const storageBucket = admin.storage().bucket("nimbus-q.appspot.com");
 
   try {
-    const [exists] = await storageBucket.file(filePath).exists();
+    const [exists] = await bucket.file(filePath).exists();
     if (!exists) {
       console.warn(`⚠️ File not found in bucket: ${filePath}. Skipping Firestore entry.`);
       return;
@@ -169,7 +166,7 @@ exports.handleFileFinalize = onObjectFinalized({ region: "us-central1", memory: 
 
     console.log(`🛡️ Deletion scheduled for ${filePath}`);
   } catch (error) {
-    console.error(`❌ Failed to schedule deletion for ${filePath}: ${error.message || error}`);
+    console.error(`❌ Failed to schedule deletion for ${filePath}:`, error);
   }
 });
 
@@ -202,11 +199,9 @@ exports.cleanupExpiredFiles = scheduler.onSchedule({
       }
 
       try {
-        const correctedBucket = admin.storage().bucket("nimbus-q.appspot.com");
-        const [exists] = await correctedBucket.file(fileToDelete).exists();
-
+        const [exists] = await bucket.file(fileToDelete).exists();
         if (exists) {
-          await correctedBucket.file(fileToDelete).delete();
+          await bucket.file(fileToDelete).delete();
           console.log(`✅ Deleted file: ${fileToDelete}`);
         } else {
           console.log(`⚠️ File already gone: ${fileToDelete}`);
