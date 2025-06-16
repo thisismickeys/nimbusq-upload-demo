@@ -96,7 +96,7 @@ app.post("/upload", checkRateLimit, upload.single("file"), async (req, res) => {
 
   if (!file) return res.status(400).json({ error: "No file uploaded" });
 
-  const pathName = `uploads/${Date.now()}_${file.originalname}`;
+  const pathName = `uploads/${file.originalname}`;
   const fileUpload = bucket.file(pathName);
 
   try {
@@ -130,13 +130,14 @@ app.post("/upload", checkRateLimit, upload.single("file"), async (req, res) => {
 exports.api = https.onRequest({ region: "us-central1" }, app);
 
 // ✅ Finalized File Trigger → Schedule Deletion
-exports.handleFileFinalize = onObjectFinalized({ region: "us-central1", memory: "512MiB" }, async (event) => {
+exports.handleFileFinalize = onObjectFinalized({
+  region: "us-central1",
+  memory: "512MiB",
+}, async (event) => {
   const filePath = event.data.name;
   const contentType = event.data.contentType;
   const uploadTime = new Date(event.data.timeCreated).getTime();
   const metadata = event.data.metadata || {};
-  const bucketName = event.data.bucket;
-  const storageBucket = gcs.bucket(bucketName);
 
   if (!filePath || !contentType?.startsWith("video/")) return;
 
@@ -145,7 +146,10 @@ exports.handleFileFinalize = onObjectFinalized({ region: "us-central1", memory: 
   const expiresAt = uploadTime + deleteDelayMs;
 
   const safeDocId = path.basename(filePath).replace(/[^\w\-\.]/g, '_');
+  const bucketName = event.data.bucket;
+  const storageBucket = gcs.bucket(bucketName);
 
+  // Retry logic to wait for file
   const maxRetries = 5;
   let fileExists = false;
   for (let i = 0; i < maxRetries; i++) {
