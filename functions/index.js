@@ -143,14 +143,28 @@ exports.handleFileFinalize = onObjectFinalized({ region: "us-central1", memory: 
   const expiresAt = uploadTime + deleteDelayMs;
 
   const safeDocId = path.basename(filePath).replace(/[^\w\-\.]/g, '_');
+  const storageBucket = admin.storage().bucket("nimbus-q.appspot.com");
+
+  // ⏳ Retry logic: wait a bit if the file isn't found immediately
+  const maxRetries = 5;
+  let fileExists = false;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const [exists] = await storageBucket.file(filePath).exists();
+    if (exists) {
+      fileExists = true;
+      break;
+    }
+    console.log(`⏳ Retry ${attempt}/${maxRetries}: File not found yet — waiting...`);
+    await new Promise(resolve => setTimeout(resolve, 500)); // wait 500ms before retry
+  }
+
+  if (!fileExists) {
+    console.warn(`❌ Still couldn't find file in bucket: ${filePath}. Skipping Firestore entry.`);
+    return;
+  }
 
   try {
-    const [exists] = await bucket.file(filePath).exists();
-    if (!exists) {
-      console.warn(`⚠️ File not found in bucket: ${filePath}. Skipping Firestore entry.`);
-      return;
-    }
-
     await db.collection("pending_deletions").doc(safeDocId).set({
       filePath,
       expiresAt,
@@ -166,7 +180,7 @@ exports.handleFileFinalize = onObjectFinalized({ region: "us-central1", memory: 
 
     console.log(`🛡️ Deletion scheduled for ${filePath}`);
   } catch (error) {
-    console.error(`❌ Failed to schedule deletion for ${filePath}:`, error);
+    console.error(`❌ Failed to schedule deletion for ${filePath}: ${error.message || error}`);
   }
 });
 
