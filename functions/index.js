@@ -21,8 +21,8 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 // ✅ Firebase Initialization
 admin.initializeApp();
 
-// ✅ CONSISTENT BUCKET CONFIGURATION
-const BUCKET_NAME = 'nimbus-q-clean';
+// ✅ SWITCHED BACK TO DEFAULT FIREBASE BUCKET
+const BUCKET_NAME = 'nimbus-q.appspot.com';
 const bucket = admin.storage().bucket(BUCKET_NAME);
 const gcs = new Storage();
 const db = admin.firestore();
@@ -77,8 +77,13 @@ const RATE_LIMIT_WINDOW = 60 * 60 * 1000;
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 },
+  limits: { 
+    fileSize: 50 * 1024 * 1024,  // Reduced to 50MB
+    files: 1,
+    fields: 10
+  },
   fileFilter: (req, file, cb) => {
+    console.log(`📁 File received: ${file.originalname}, type: ${file.mimetype}, size: ${file.size}`);
     if (file.mimetype.startsWith('video/')) cb(null, true);
     else cb(new Error('Only video files are allowed'), false);
   }
@@ -110,12 +115,24 @@ app.get('/', (req, res) => {
   res.json({ 
     message: "Nimbus-Q API is running!", 
     timestamp: new Date().toISOString(),
+    bucket: BUCKET_NAME,
     cors: "enabled"
   });
 });
 
-// ✅ Upload Endpoint
-app.post("/upload", checkRateLimit, upload.single("file"), async (req, res) => {
+// ✅ Upload Endpoint with better error handling
+app.post("/upload", checkRateLimit, (req, res, next) => {
+  upload.single("file")(req, res, (err) => {
+    if (err) {
+      console.error("❌ Multer error:", err.message);
+      return res.status(400).json({ 
+        error: "File upload error", 
+        details: err.message 
+      });
+    }
+    next();
+  });
+}, async (req, res) => {
   // Add CORS headers manually as backup
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -131,6 +148,11 @@ app.post("/upload", checkRateLimit, upload.single("file"), async (req, res) => {
   if (!file) {
     console.error("❌ No file in request");
     return res.status(400).json({ error: "No file uploaded" });
+  }
+
+  if (!file.buffer || file.buffer.length === 0) {
+    console.error("❌ Empty file buffer");
+    return res.status(400).json({ error: "File is empty or corrupted" });
   }
 
   // ✅ RESTORED TIMESTAMP TO PREVENT OVERWRITES
@@ -180,11 +202,11 @@ exports.api = https.onRequest({
   invoker: "public" // ✅ THIS ALLOWS PUBLIC ACCESS
 }, app);
 
-// ✅ Finalized File Trigger → Schedule Deletion
+// ✅ Finalized File Trigger → Schedule Deletion (UPDATED TO DEFAULT BUCKET)
 exports.handleFileFinalize = onObjectFinalized({
   region: "us-central1",
-  memory: "512MiB",
-  bucket: BUCKET_NAME
+  memory: "512MiB"
+  // ✅ REMOVED bucket specification to use default Firebase bucket
 }, async (event) => {
   const filePath = event.data.name;
   const contentType = event.data.contentType;
@@ -355,6 +377,7 @@ exports.manualCleanup = https.onRequest({
       message: "Manual cleanup check completed",
       totalDocuments: snapshot.size,
       expiredDocuments: expired.length,
+      bucket: BUCKET_NAME,
       details: expired.map(doc => ({
         id: doc.id,
         filePath: doc.data().filePath,
