@@ -390,3 +390,49 @@ exports.manualCleanup = https.onRequest({
     res.status(500).json({ error: error.message });
   }
 });
+
+// ✅ WORKING V1 FUNCTION - ADD THIS TO THE BOTTOM OF YOUR FILE
+const functions = require('firebase-functions');
+
+const workingApp = express();
+workingApp.use(cors({ origin: true }));
+
+const workingUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }
+});
+
+workingApp.get('/', (req, res) => {
+  res.json({ 
+    message: "Nimbus-Q v1 API - WORKING!",
+    timestamp: new Date().toISOString()
+  });
+});
+
+workingApp.post('/upload', workingUpload.single('file'), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const fileName = `uploads/${Date.now()}_${file.originalname}`;
+    const bucket = admin.storage().bucket();
+    const fileUpload = bucket.file(fileName);
+
+    await fileUpload.save(file.buffer, {
+      metadata: { contentType: file.mimetype }
+    });
+
+    res.json({
+      message: "✅ Upload successful!",
+      fileName: fileName,
+      size: `${(file.size / 1024 / 1024).toFixed(2)} MB`
+    });
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({ error: 'Upload failed', details: error.message });
+  }
+});
+
+exports.working = functions.https.onRequest(workingApp);
