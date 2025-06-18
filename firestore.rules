@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow read/write for pending_deletions collection
+    match /pending_deletions/{document} {
+      allow read, write: if true;
+    }
+    
+    // Allow all other operations (you can restrict this later)
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

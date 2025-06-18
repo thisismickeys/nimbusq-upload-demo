@@ -10,7 +10,7 @@ const timeLeft = document.getElementById('timeLeft');
 const spinner = document.getElementById('spinner');
 
 // API Configuration
-const API_BASE = 'https://us-central1-nimbus-q.cloudfunctions.net/upload';
+const API_BASE = 'https://us-central1-nimbus-q.cloudfunctions.net/nimbusq';
 
 // Global variables
 let uploadResult = null;
@@ -144,7 +144,8 @@ async function handleUpload() {
                 'X-File-Name': file.name,
                 'X-File-Type': file.type,
                 'X-Delete-After': selectedTime,
-                'X-File-Size': file.size.toString()
+                'X-User-Tier': 'demo',
+                'X-User-ID': 'test-user'
             },
             body: arrayBuffer
         });
