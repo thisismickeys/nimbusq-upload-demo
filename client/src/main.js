@@ -1,6 +1,3 @@
-// Bulletproof main.js - NO FormData, NO multer issues
-
-// DOM Elements
 const videoUpload = document.getElementById('videoUpload');
 const dropZone = document.getElementById('dropZone');
 const deleteTime = document.getElementById('deleteTime');
