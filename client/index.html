@@ -173,9 +173,7 @@
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-M0ZGSQ515X"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'G-ABCDEFG123');
+      function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', 'G-ABCDEFG123');
     </script>
   </head>
 
@@ -207,9 +205,100 @@
       <progress id="progressBar" value="0" max="100"></progress>
       <p id="status">Please select a video file.</p>
       <p id="countdown">Auto-delete in: <span id="timeLeft">--:--</span></p>
+      <p id="shareLink" style="display:none;font-size:.9rem"></p>
+      <button id="openAiChat" style="display:none;margin-top:1rem;font-size:1rem;padding:.5rem 1rem">🔮 Ask AI about this video</button>
       <footer>Your file is private. Nimbus-Q will auto-delete it.</footer>
     </div>
 
-    <script type="module" src="/src/main.js"></script>
+    <!-- Inline module script providing upload + enterprise extras -->
+    <script type="module">
+      const API  = 'https://us-central1-nimbus-q.cloudfunctions.net/nimbusq';
+      const fileInput = document.getElementById('videoUpload');
+      const delPreset = document.getElementById('deleteTime');
+      const delCustom = document.getElementById('customDeleteTime');
+      const upBtn     = document.getElementById('uploadBtn');
+      const prog      = document.getElementById('progressBar');
+      const status    = document.getElementById('status');
+      const shareLink = document.getElementById('shareLink');
+      const chatBtn   = document.getElementById('openAiChat');
+      const dropZone  = document.getElementById('dropZone');
+      let timer;
+
+      // quick helpers
+      const css=(el,o)=>Object.assign(el.style,o);
+      const setStatus=(m,c)=>{status.textContent=m;status.style.color=c||'#333'};
+
+      // drag‑and‑drop UI sugar
+      ['dragenter','dragover'].forEach(evt=>dropZone.addEventListener(evt,e=>{e.preventDefault();dropZone.classList.add('dragover');}));
+      ['dragleave','drop'].forEach(evt=>dropZone.addEventListener(evt,e=>{e.preventDefault();dropZone.classList.remove('dragover');}));
+      dropZone.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f){fileInput.files=e.dataTransfer.files;}});
+
+      upBtn.onclick = async () => {
+        const f = fileInput.files[0];
+        if(!f){ setStatus('❌ choose a video','#f44'); return; }
+        if(!f.type.startsWith('video/')){ setStatus('❌ not a video','#f44'); return; }
+
+        const del = delPreset.value||delCustom.value||'2m';
+        upBtn.disabled=true; prog.style.display='block'; prog.value=20; setStatus('reading…','#4af');
+
+        const buf = await f.arrayBuffer(); prog.value=40; setStatus('uploading…','#4af');
+
+        try{
+          const r = await fetch(API,{
+            method:'POST',
+            headers:{
+              'Content-Type':'application/octet-stream',
+              'X-File-Name':f.name,
+              'X-File-Type':f.type,
+              'X-Delete-After':del,
+              'X-User-Tier':'demo'
+            },
+            body:buf});
+          if(!r.ok) throw new Error(r.status+' '+r.statusText);
+          const res = await r.json();
+          prog.value=100; setStatus('✅ uploaded!','#4f4');
+
+          // build access link (requires backend that returns uploadId + accessToken)
+          if(res.uploadId && res.accessToken){
+            const link=`https://api.nimbus-q.com/api/v1/video/${res.uploadId}/access?token=${res.accessToken}`;
+            shareLink.innerHTML=`🔗 <a href="${link}" target="_blank">direct link</a>`; css(shareLink,{display:'block'});
+            chatBtn.onclick=()=>openChat(res.uploadId,res.accessToken); css(chatBtn,{display:'inline-block'});
+          }
+
+          // countdown
+          startCountdown(res.expiresAt);
+        }catch(err){
+          console.error(err); setStatus('upload failed','#f44');
+        }finally{
+          upBtn.disabled=false; prog.style.display='none';
+        }
+      };
+
+      const startCountdown = (iso)=>{
+        clearInterval(timer);
+        const end=new Date(iso).getTime();
+        timer=setInterval(()=>{
+          const t=end-Date.now();
+          if(t<=0){document.getElementById('timeLeft').textContent='File deleted';clearInterval(timer);return;}
+          const h=Math.floor(t/3600000), m=Math.floor(t%3600000/60000), s=Math.floor(t%60000/1000);
+          document.getElementById('timeLeft').textContent=(h?`${h}h `:'')+(m?`${m}m `:'')+`${s}s`;
+        },1000);
+      };
+
+      // tiny chat popup
+      function openChat(id,token){
+        const w=window.open('','Nimbus-Q AI','width=420,height=640');
+        w.document.write(`<textarea id=l style="width:100%;height:85%"></textarea><input id=q style="width:100%;padding:8px">`);
+        const $=s=>w.document.getElementById(s);
+        $('q').onkeydown=async e=>{
+          if(e.key!=='Enter')return; const p=e.target.value.trim(); if(!p) return; e.target.value=''; $('l').value+=`\n> ${p}`;
+          const rr=await fetch(API+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({videoId:id,token,prompt:p})});
+          $('l').value+='\n'+await rr.text();
+        };
+      }
+
+      // extra CSS for drag state
+      const extra=document.createElement('style'); extra.textContent=`.drop-zone.dragover{background:rgba(77,168,255,0.1)!important;border-color:#4da8ff!important;transform:scale(1.02);transition:all .2s}`; document.head.appendChild(extra);
+    </script>
   </body>
 </html>
