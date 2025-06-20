@@ -50,7 +50,11 @@
  
  // Create Express app
  const app = express();
- app.use(cors({ origin: true }));
+ app.use(cors({ 
+  origin: ['https://nimbus-q.web.app'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-file-name', 'x-file-type', 'x-delete-after', 'x-user-tier', 'x-user-id']
+}));
  app.use('/', express.raw({ type: 'application/octet-stream', limit: CONFIG.MAX_FILE_SIZE }));
  app.use(express.json());
  
