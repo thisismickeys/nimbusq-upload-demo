@@ -1,304 +1,141 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Nimbus-Q Upload</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
-    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
-    <link rel="manifest" href="/site.webmanifest" />
-    <meta name="theme-color" content="#2e9ad1" />
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Nimbus-Q Upload</title>
 
-    <!-- TensorFlow & NSFWJS -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.5.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/nsfwjs@2.4.0/dist/nsfwjs.min.js"></script>
+  <!-- fonts + icons -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet"/>
+  <link rel="icon" href="/favicon.ico"/>
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png"/>
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"/>
+  <link rel="manifest" href="/site.webmanifest"/>
+  <meta name="theme-color" content="#2e9ad1"/>
 
-    <style>
-      body {
-        font-family: 'Inter', sans-serif;
-        background: 
-          radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.3), transparent 60%),
-          radial-gradient(circle at 70% 70%, rgba(255, 255, 255, 0.25), transparent 60%),
-          linear-gradient(to bottom right, #2e9ad1, #a2d9f5);
-        color: #333;
-        display: flex; align-items: center; justify-content: center;
-        height: 100vh; margin: 0; overflow: hidden;
-      }
+  <!-- (optional) client-side safety libs -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.5.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/nsfwjs@2.4.0/dist/nsfwjs.min.js"></script>
 
-      .cloud {
-        position: absolute; background: rgba(255,255,255,0.3);
-        border-radius: 50%/40%; animation: float 60s linear infinite; z-index: 0;
-      }
+  <style>
+    /* ─── layout ─────────────────────────────────────────────────────── */
+    body{
+      font-family:Inter,sans-serif;
+      background:
+        radial-gradient(circle at 30% 20%,rgba(255,255,255,.3),transparent 60%),
+        radial-gradient(circle at 70% 70%,rgba(255,255,255,.25),transparent 60%),
+        linear-gradient(to bottom right,#2e9ad1,#a2d9f5);
+      display:flex;align-items:center;justify-content:center;
+      height:100vh;margin:0;overflow:hidden;color:#333
+    }
+    .cloud{position:absolute;background:rgba(255,255,255,.3);border-radius:50%/40%;animation:float 60s linear infinite;z-index:0}
+    .cloud:nth-child(1){width:300px;height:150px;top:10%;left:-20%;animation-duration:90s}
+    .cloud:nth-child(2){width:200px;height:100px;top:30%;left:-25%;animation-duration:120s}
+    .cloud:nth-child(3){width:250px;height:120px;top:60%;left:-30%;animation-duration:100s}
+    @keyframes float{0%{transform:translateX(0)}100%{transform:translateX(200vw)}}
 
-      .cloud:nth-child(1) { width:300px;height:150px;top:10%;left:-20%;animation-duration:90s }
-      .cloud:nth-child(2) { width:200px;height:100px;top:30%;left:-25%;animation-duration:120s }
-      .cloud:nth-child(3) { width:250px;height:120px;top:60%;left:-30%;animation-duration:100s }
+    .container{
+      z-index:1;text-align:center;background:rgba(255,255,255,.6);backdrop-filter:blur(12px);
+      padding:2rem;border-radius:16px;box-shadow:0 0 20px rgba(0,0,0,.1);
+      width:90%;max-width:400px
+    }
+    .logo{width:150px;height:150px;border-radius:12px;margin-bottom:1rem}
+    .tagline{color:#555;margin-bottom:2rem}
 
-      @keyframes float { 0% { transform:translateX(0) } 100% { transform:translateX(200vw) } }
+    /* ─── drop zone ──────────────────────────────────────────────────── */
+    .drop-zone{
+      display:flex;align-items:center;justify-content:center;
+      width:100%;min-height:100px;border:2px dashed #ddd;border-radius:10px;
+      margin-bottom:1rem;cursor:pointer;transition:background .2s,border-color .2s
+    }
+    .drop-zone:hover{background:rgba(255,255,255,.7)}
+    .drop-zone.has-file{border-color:#4da8ff;background:rgba(77,168,255,.10)}
+    .drop-zone.has-file::after{
+      content:attr(data-filename);position:absolute;bottom:8px;font-size:.85rem;color:#333
+    }
+    .drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
 
-      .container {
-        z-index: 1;
-        text-align: center;
-        background: rgba(255, 255, 255, 0.6);
-        backdrop-filter: blur(12px);
-        padding: 2rem;
-        border-radius: 16px;
-        box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
-        width: 90%;
-        max-width: 400px;
-        margin: 0 auto;
-      }
+    /* ─── form bits ─────────────────────────────────────────────────── */
+    select,input[type=text]{
+      width:100%;padding:.6rem;border:1px solid #ddd;border-radius:10px;
+      font-size:1rem;margin-bottom:1rem
+    }
+    #uploadBtn{
+      width:100%;padding:.7rem 1.5rem;border:none;border-radius:8px;
+      background:#4da8ff;color:#fff;font-weight:600;cursor:pointer;transition:background .3s
+    }
+    #uploadBtn:hover{background:#73bfff}
 
-      .logo { width:150px; height:150px; border-radius:12px; margin-bottom:1rem }
-      .tagline { font-size:1rem; color:#555; margin-bottom:2rem }
+    #progressBar{display:none;width:100%;height:10px;margin-top:1rem;border-radius:6px;background:#eee}
+    #status{margin-top:1rem;font-weight:600}
+    #countdown{font-size:.9rem;color:#777;margin-top:.5rem}
+    footer{margin-top:2rem;font-size:.85rem;color:#888}
 
-      .drop-zone {
-        display: flex; align-items: center; justify-content: center;
-        width: 100%; min-height: 100px;
-        border: 2px dashed #ddd; border-radius: 10px;
-        margin-bottom: 1rem; position: relative; cursor: pointer;
-        transition: background-color 0.2s, border-color 0.2s;
-      }
+    /* ─── mobile tweaks ─────────────────────────────────────────────── */
+    @media(max-width:500px){
+      .container{padding:1.5rem;border-radius:12px}
+      .logo{width:120px;height:120px;margin-bottom:.8rem}
+      .tagline{font-size:.95rem}
+      select,input[type=text],#uploadBtn{font-size:.9rem;padding:.6rem}
+      #status{font-size:.9rem}#countdown{font-size:.8rem}
+      .drop-zone{min-height:80px;font-size:.9rem}
+      footer{font-size:.75rem}
+    }
+  </style>
 
-      .drop-zone:hover { background-color: rgba(255,255,255,0.7); }
-      .drop-zone.has-file {
-        border-color: #4da8ff;
-        background-color: rgba(77, 168, 255, 0.1);
-      }
+  <!-- SEO/social -->
+  <meta property="og:title" content="Nimbus-Q: AI-Ready Video Uploads"/>
+  <meta property="og:description" content="Temporary, private uploads with auto-deletion."/>
+  <meta property="og:image" content="https://nimbus-q.web.app/favicon.ico"/>
+  <meta property="og:url" content="https://nimbus-q.web.app"/>
+  <meta name="twitter:card" content="summary_large_image"/>
 
-      .drop-zone.has-file::after {
-        content: attr(data-filename);
-        position: absolute;
-        bottom: 8px;
-        font-size: 0.85rem;
-        color: #333;
-      }
+  <!-- (optional) GA -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-M0ZGSQ515X"></script>
+  <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-ABCDEFG123');</script>
+</head>
 
-      .drop-zone input[type="file"] {
-        position: absolute; top: 0; left: 0;
-        width: 100%; height: 100%; opacity: 0; cursor: pointer;
-      }
+<body>
+  <div class="cloud"></div><div class="cloud"></div><div class="cloud"></div>
 
-      select, input[type="text"] {
-        padding:.6rem; width:100%;
-        border:1px solid #ddd; border-radius:10px;
-        font-size:1rem; margin-bottom:1rem;
-      }
+  <div class="container">
+    <img src="/nimbus-logo.png" alt="Nimbus-Q Logo" class="logo"/>
+    <p class="tagline">The Future of Private AI Video Uploads</p>
 
-      #uploadBtn {
-        background:#4da8ff; color:#fff; border:none;
-        border-radius:8px; padding:.7rem 1.5rem;
-        font-size:1rem; font-weight:600;
-        cursor:pointer; transition:background .3s;
-        width:100%; margin-top:.5rem;
-      }
+    <label class="drop-zone" id="dropZone">
+      Drag & Drop or Choose File
+      <input type="file" id="videoUpload" accept="video/mp4,video/quicktime"/>
+    </label>
 
-      #uploadBtn:hover { background:#73bfff }
+    <select id="deleteTime">
+      <option value="">Select a preset time…</option>
+      <option value="2m">2 minutes (demo)</option>
+      <option value="10m">10 minutes</option>
+      <option value="1h">1 hour</option>
+      <option value="24h">24 hours</option>
+      <option value="7d">7 days</option>
+    </select>
 
-      #progressBar {
-        display:none; width:100%; height:10px;
-        border-radius:6px; overflow:hidden; background:#eee;
-        margin-top:1rem;
-      }
+    <input type="text" id="customDeleteTime" placeholder="Or enter custom time (e.g. 13h47m)"/>
+    <button id="uploadBtn">Upload Video</button>
 
-      #status { margin-top:1rem; font-weight:600; color:#333 }
-      #countdown { font-size:.9rem; color:#777; margin-top:.5rem }
-      footer { margin-top:2rem; font-size:.85rem; color:#888 }
+    <div id="spinner" style="display:none;margin-top:1rem"><div class="loader"></div></div>
+    <progress id="progressBar" value="0" max="100"></progress>
 
-      .loader {
-        width: 32px;
-        height: 32px;
-        border: 4px solid rgba(255,255,255,0.3);
-        border-top: 4px solid #4da8ff;
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-        margin: 0 auto;
-      }
+    <p id="status">Please select a video file.</p>
+    <p id="countdown">Auto-delete in: <span id="timeLeft">--:--</span></p>
 
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
+    <!-- hidden until JS shows them -->
+    <p id="shareLink" style="display:none;font-size:.9rem"></p>
+    <button id="openAiChat" style="display:none;margin-top:1rem;font-size:1rem;padding:.5rem 1rem">
+      🔮 Ask AI about this video
+    </button>
 
-      @media (max-width: 500px) {
-        .container {
-          padding: 1.5rem;
-          border-radius: 12px;
-        }
+    <footer>Your file is private. Nimbus-Q will auto-delete it.</footer>
+  </div>
 
-        .logo {
-          width: 120px;
-          height: 120px;
-          margin-bottom: 0.8rem;
-        }
-
-        .tagline {
-          font-size: 0.95rem;
-        }
-
-        select, input[type="text"], #uploadBtn {
-          font-size: 0.9rem;
-          padding: 0.6rem;
-        }
-
-        #status {
-          font-size: 0.9rem;
-        }
-
-        #countdown {
-          font-size: 0.8rem;
-        }
-
-        .drop-zone {
-          min-height: 80px;
-          font-size: 0.9rem;
-        }
-
-        footer {
-          font-size: 0.75rem;
-        }
-      }
-    </style>
-
-    <meta property="og:title" content="Nimbus-Q: AI-Ready Video Uploads" />
-    <meta property="og:description" content="Temporary, private, AI-friendly video upload system with auto-deletion and flexible access." />
-    <meta property="og:image" content="https://nimbus-q.web.app/favicon.ico" />
-    <meta property="og:url" content="https://nimbus-q.web.app" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="description" content="Nimbus-Q is a lightweight, scalable video upload system built for AI. Enjoy private, temporary storage, automated deletion, and seamless integration." />
-    <meta name="keywords" content="AI video upload, temporary video storage, auto-deletion, Nimbus-Q, scalable upload, privacy video platform" />
-    <meta name="author" content="Miguel Sanchez" />
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-M0ZGSQ515X"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', 'G-ABCDEFG123');
-    </script>
-  </head>
-
-  <body>
-    <div class="cloud"></div><div class="cloud"></div><div class="cloud"></div>
-    <div class="container">
-      <img src="/nimbus-logo.png" alt="Nimbus-Q Logo" class="logo" />
-      <p class="tagline">The Future of Private AI Video Uploads</p>
-
-      <label class="drop-zone" id="dropZone">
-        Drag & Drop or Choose File
-        <input type="file" id="videoUpload" accept="video/mp4,video/quicktime"/>
-      </label>
-
-      <select id="deleteTime">
-        <option value="">Select a preset time…</option>
-        <option value="2m">2 minutes (Demo)</option>
-        <option value="10m">10 minutes</option>
-        <option value="1h">1 hour</option>
-        <option value="24h">24 hours</option>
-        <option value="7d">7 days</option>
-      </select>
-
-      <input type="text" id="customDeleteTime" placeholder="Or enter custom time (e.g. 13h47m)" />
-      <button id="uploadBtn">Upload Video</button>
-      <div id="spinner" style="display: none; margin-top: 1rem;">
-        <div class="loader"></div>
-      </div>      
-      <progress id="progressBar" value="0" max="100"></progress>
-      <p id="status">Please select a video file.</p>
-      <p id="countdown">Auto-delete in: <span id="timeLeft">--:--</span></p>
-      <p id="shareLink" style="display:none;font-size:.9rem"></p>
-      <button id="openAiChat" style="display:none;margin-top:1rem;font-size:1rem;padding:.5rem 1rem">🔮 Ask AI about this video</button>
-      <footer>Your file is private. Nimbus-Q will auto-delete it.</footer>
-    </div>
-
-    <!-- Inline module script providing upload + enterprise extras -->
-    <script type="module">
-      const API  = 'https://us-central1-nimbus-q.cloudfunctions.net/nimbusq';
-      const fileInput = document.getElementById('videoUpload');
-      const delPreset = document.getElementById('deleteTime');
-      const delCustom = document.getElementById('customDeleteTime');
-      const upBtn     = document.getElementById('uploadBtn');
-      const prog      = document.getElementById('progressBar');
-      const status    = document.getElementById('status');
-      const shareLink = document.getElementById('shareLink');
-      const chatBtn   = document.getElementById('openAiChat');
-      const dropZone  = document.getElementById('dropZone');
-      let timer;
-
-      // quick helpers
-      const css=(el,o)=>Object.assign(el.style,o);
-      const setStatus=(m,c)=>{status.textContent=m;status.style.color=c||'#333'};
-
-      // drag‑and‑drop UI sugar
-      ['dragenter','dragover'].forEach(evt=>dropZone.addEventListener(evt,e=>{e.preventDefault();dropZone.classList.add('dragover');}));
-      ['dragleave','drop'].forEach(evt=>dropZone.addEventListener(evt,e=>{e.preventDefault();dropZone.classList.remove('dragover');}));
-      dropZone.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f){fileInput.files=e.dataTransfer.files;}});
-
-      upBtn.onclick = async () => {
-        const f = fileInput.files[0];
-        if(!f){ setStatus('❌ choose a video','#f44'); return; }
-        if(!f.type.startsWith('video/')){ setStatus('❌ not a video','#f44'); return; }
-
-        const del = delPreset.value||delCustom.value||'2m';
-        upBtn.disabled=true; prog.style.display='block'; prog.value=20; setStatus('reading…','#4af');
-
-        const buf = await f.arrayBuffer(); prog.value=40; setStatus('uploading…','#4af');
-
-        try{
-          const r = await fetch(API,{
-            method:'POST',
-            headers:{
-              'Content-Type':'application/octet-stream',
-              'X-File-Name':f.name,
-              'X-File-Type':f.type,
-              'X-Delete-After':del,
-              'X-User-Tier':'demo'
-            },
-            body:buf});
-          if(!r.ok) throw new Error(r.status+' '+r.statusText);
-          const res = await r.json();
-          prog.value=100; setStatus('✅ uploaded!','#4f4');
-
-          // build access link (requires backend that returns uploadId + accessToken)
-          if(res.uploadId && res.accessToken){
-            const link=`https://api.nimbus-q.com/api/v1/video/${res.uploadId}/access?token=${res.accessToken}`;
-            shareLink.innerHTML=`🔗 <a href="${link}" target="_blank">direct link</a>`; css(shareLink,{display:'block'});
-            chatBtn.onclick=()=>openChat(res.uploadId,res.accessToken); css(chatBtn,{display:'inline-block'});
-          }
-
-          // countdown
-          startCountdown(res.expiresAt);
-        }catch(err){
-          console.error(err); setStatus('upload failed','#f44');
-        }finally{
-          upBtn.disabled=false; prog.style.display='none';
-        }
-      };
-
-      const startCountdown = (iso)=>{
-        clearInterval(timer);
-        const end=new Date(iso).getTime();
-        timer=setInterval(()=>{
-          const t=end-Date.now();
-          if(t<=0){document.getElementById('timeLeft').textContent='File deleted';clearInterval(timer);return;}
-          const h=Math.floor(t/3600000), m=Math.floor(t%3600000/60000), s=Math.floor(t%60000/1000);
-          document.getElementById('timeLeft').textContent=(h?`${h}h `:'')+(m?`${m}m `:'')+`${s}s`;
-        },1000);
-      };
-
-      // tiny chat popup
-      function openChat(id,token){
-        const w=window.open('','Nimbus-Q AI','width=420,height=640');
-        w.document.write(`<textarea id=l style="width:100%;height:85%"></textarea><input id=q style="width:100%;padding:8px">`);
-        const $=s=>w.document.getElementById(s);
-        $('q').onkeydown=async e=>{
-          if(e.key!=='Enter')return; const p=e.target.value.trim(); if(!p) return; e.target.value=''; $('l').value+=`\n> ${p}`;
-          const rr=await fetch(API+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({videoId:id,token,prompt:p})});
-          $('l').value+='\n'+await rr.text();
-        };
-      }
-
-      // extra CSS for drag state
-      const extra=document.createElement('style'); extra.textContent=`.drop-zone.dragover{background:rgba(77,168,255,0.1)!important;border-color:#4da8ff!important;transform:scale(1.02);transition:all .2s}`; document.head.appendChild(extra);
-    </script>
-  </body>
+  <!-- main bundle -->
+  <script type="module" src="app.js"></script>
+</body>
 </html>
